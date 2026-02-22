@@ -191,15 +191,21 @@
       <div class="glossary-body">
         <p><strong>ISO Bridge</strong> is a country-aware payments format translation workbench. It converts between SWIFT MT legacy messages and ISO 20022 XML, showing exactly what happens to every field in the process.</p>
 
-        <p>The global payments industry is migrating from SWIFT MT to ISO 20022, but the transition is uneven: different countries, different rails, different timelines. Translation between formats is <em>inherently lossy</em> — ISO 20022 carries richer data than MT can represent, and MT fields don't always have clean ISO equivalents.</p>
+        <p><strong>Why this matters now.</strong> The SWIFT deadline for ISO 20022 adoption on cross-border payments was November 2025. In practice, the migration is not uniform. Large banks have implicit extensions. Mid-size institutions are running translation middleware that converts ISO 20022 back to MT for internal consumption, buying time while deeper integration work continues. The result is a coexistence period where both formats live in the same transaction chains, and data is lost at every translation boundary.</p>
 
-        <p><strong>This tool is honest about data loss.</strong> Every translation shows:</p>
+        <p>A payment that originates as a pacs.008 may be translated to MT103 at a correspondent bank's gateway, processed internally as MT, and translated back to ISO 20022 at the receiving end. Structured remittance collapses into free text. Addresses lose their structure. Charge bearer codes approximate rather than map cleanly.</p>
+
+        <p><strong>This tool is honest about that data loss.</strong> Every translation shows:</p>
         <ul style="margin:0 0 14px;padding-left:20px">
-          <li>Which fields map cleanly (green)</li>
-          <li>Which fields are transformed (amber)</li>
-          <li>Which data is lost or can't be represented (red)</li>
-          <li>Which ISO fields are auto-generated with no MT source (blue)</li>
+          <li>Which fields map cleanly <span style="color:var(--success);font-weight:600">(green)</span></li>
+          <li>Which fields are transformed or approximated <span style="color:var(--warning-dark);font-weight:600">(amber)</span></li>
+          <li>Which data is lost or can't be represented <span style="color:var(--error);font-weight:600">(red)</span></li>
+          <li>Which ISO fields are auto-generated with no MT source <span style="color:#1967D2;font-weight:600">(blue)</span></li>
         </ul>
+
+        <p><strong>Country-aware.</strong> Different countries are at different stages. The US has six active payment rails, some native ISO 20022 (RTP, FedNow), some mid-migration (Fedwire, CHIPS). Canada's Lynx has been native ISO 20022 since 2021. Brazil's PIX is built entirely on ISO 20022, with over 140 million users. The tool knows which formats are relevant in which market, so it only shows what you will actually encounter.</p>
+
+        <p><strong>Config-driven architecture.</strong> All country data, translation paths, and field-by-field mappings live in plain JavaScript configuration files. Adding a new country or a new format pair means editing a config file, never touching the engine. The configs are human-readable documentation in their own right.</p>
 
         <div class="glossary-coverage">
           <p><strong>v1.0 coverage:</strong> MT103 ↔ pacs.008 translation across US, Canada, and Brazil. More formats and countries in v1.1.</p>
@@ -208,9 +214,9 @@
         <div class="uk-margin-medium-top">
           <p><strong>Part of the payments toolkit:</strong></p>
           <ul style="margin:0;padding-left:20px">
-            <li><a href="../swift-parser/">SWIFT MT Parser</a> — decode MT messages into structured JSON</li>
-            <li><a href="../iso20022-validator/">ISO 20022 Validator</a> — validate XML against schemas and scheme profiles</li>
-            <li><strong>ISO Bridge</strong> (this tool) — translate between formats</li>
+            <li><a href="../swift-parser/">SWIFT MT Parser</a> decodes MT messages into structured JSON</li>
+            <li><a href="../iso20022-validator/">ISO 20022 Validator</a> validates XML against schemas and scheme profiles</li>
+            <li><strong>ISO Bridge</strong> (this tool) translates between formats</li>
           </ul>
         </div>
       </div>

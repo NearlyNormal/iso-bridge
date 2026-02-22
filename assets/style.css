@@ -23,7 +23,7 @@
   --size-xs: 0.85rem;
   --size-sm: 0.75rem;
   --size-base: 0.85rem;
-  --size-md: 0.9rem;
+  --size-md: 0.96rem;
   --size-lg: 1rem;
   --size-code: 16px;
 }
@@ -32,7 +32,7 @@ html,
 body {
   font-family: var(--font-sans);
   font-size: 1.1rem;
-  line-height: 1.35;
+  line-height: 1.42;
   color: var(--text-primary);
   background: var(--bg-panel);
   height: 100%;
@@ -85,9 +85,11 @@ body {
   transition: opacity 0.3s ease;
   vertical-align: middle;
 }
+
 .glossary-btn:hover {
   opacity: 0.8;
 }
+
 .glossary-btn img {
   width: 18px;
   height: 18px;
@@ -249,6 +251,7 @@ body {
   cursor: pointer;
   transition: background 0.3s ease, border-color 0.3s ease, color 0.3s ease;
 }
+
 .msg-type-select:hover {
   background: #E8E8E8;
   border-color: #CCC;
@@ -434,7 +437,7 @@ body {
   font-family: var(--font-mono);
   font-size: var(--size-code);
   font-weight: 400;
-  line-height: 1.35;
+  line-height: 1.42;
   color: var(--text-muted);
 }
 
@@ -793,9 +796,21 @@ body {
   border-radius: 3px;
   letter-spacing: 0.5px;
 }
-.charge-sha { background: #E8F0FE; color: #1967D2; }
-.charge-our { background: #FFF3E0; color: #E65100; }
-.charge-ben { background: #F3E8FF; color: #7C3AED; }
+
+.charge-sha {
+  background: #E8F0FE;
+  color: #1967D2;
+}
+
+.charge-our {
+  background: #FFF3E0;
+  color: #E65100;
+}
+
+.charge-ben {
+  background: #F3E8FF;
+  color: #7C3AED;
+}
 
 /* ─── ENVELOPE INFO ─── */
 .envelope-section {
@@ -845,11 +860,25 @@ body {
 }
 
 /* Atom One Dark overrides scoped to .json-preview */
-.json-preview .hljs-attr { color: #E06C75; }
-.json-preview .hljs-string { color: #98C379; }
-.json-preview .hljs-number { color: #D19A66; }
-.json-preview .hljs-literal { color: #56B6C2; }
-.json-preview .hljs-punctuation { color: #ABB2BF; }
+.json-preview .hljs-attr {
+  color: #E06C75;
+}
+
+.json-preview .hljs-string {
+  color: #98C379;
+}
+
+.json-preview .hljs-number {
+  color: #D19A66;
+}
+
+.json-preview .hljs-literal {
+  color: #56B6C2;
+}
+
+.json-preview .hljs-punctuation {
+  color: #ABB2BF;
+}
 
 .json-copy-btn {
   position: absolute;
@@ -967,7 +996,7 @@ body {
   left: 50%;
   transform: translateX(-50%);
   margin: 0;
-  width: 640px;
+  width: 820px;
   max-width: 90vw;
   max-height: calc(100vh - 6rem);
   display: flex;
@@ -998,7 +1027,7 @@ body {
   overflow-y: auto;
   font-family: var(--font-sans);
   font-size: var(--size-md);
-  line-height: 1.35;
+  line-height: 1.42;
   color: var(--text-primary);
 }
 
@@ -1032,11 +1061,31 @@ body {
   border-radius: 3px;
   text-transform: uppercase;
 }
-.block-1 { background: #E8F0FE; color: #1967D2; }
-.block-2 { background: #FFF3E0; color: #E65100; }
-.block-3 { background: #F3E8FF; color: #7C3AED; }
-.block-4 { background: #E8F5E9; color: #2E7D32; }
-.block-5 { background: #FCE4EC; color: #C62828; }
+
+.block-1 {
+  background: #E8F0FE;
+  color: #1967D2;
+}
+
+.block-2 {
+  background: #FFF3E0;
+  color: #E65100;
+}
+
+.block-3 {
+  background: #F3E8FF;
+  color: #7C3AED;
+}
+
+.block-4 {
+  background: #E8F5E9;
+  color: #2E7D32;
+}
+
+.block-5 {
+  background: #FCE4EC;
+  color: #C62828;
+}
 
 /* ═══════════════════════════════════════════════════
    ISO BRIDGE – NEW STYLES
@@ -1090,12 +1139,15 @@ body {
   transition: border-color 0.2s ease;
   white-space: nowrap;
 }
+
 .country-dropdown-btn.has-value {
   font-weight: 500;
 }
+
 .country-dropdown-btn span {
   text-transform: uppercase;
 }
+
 .country-dropdown-btn:hover {
   border-color: var(--accent-dark);
 }
@@ -1115,7 +1167,7 @@ body {
   padding: 6px 0;
 }
 
-.country-dropdown .uk-nav > li > a {
+.country-dropdown .uk-nav>li>a {
   font-family: var(--font-mono);
   font-size: var(--size-code);
   color: var(--text-primary);
@@ -1126,28 +1178,28 @@ body {
   gap: 15px;
 }
 
-.country-dropdown .uk-nav > li > a:hover {
+.country-dropdown .uk-nav>li>a:hover {
   background: var(--accent-bg);
   color: var(--accent-dark);
 }
 
-.country-dropdown .uk-nav > li > a.country-active {
+.country-dropdown .uk-nav>li>a.country-active {
   background: var(--accent-bg);
   color: var(--accent-dark);
   font-weight: 600;
 }
 
-.country-dropdown .uk-nav > li > a.country-planned {
+.country-dropdown .uk-nav>li>a.country-planned {
   color: var(--text-muted);
   cursor: default;
   pointer-events: none;
 }
 
-.country-dropdown .uk-nav > li > a.country-planned .country-flag {
+.country-dropdown .uk-nav>li>a.country-planned .country-flag {
   opacity: 0.35;
 }
 
-.country-dropdown .uk-nav > li > a.country-planned .country-name {
+.country-dropdown .uk-nav>li>a.country-planned .country-name {
   opacity: 0.5;
 }
 
@@ -1194,18 +1246,22 @@ body {
   cursor: pointer;
   transition: border-color 0.2s ease, color 0.2s ease;
 }
+
 .format-dropdown-btn:hover:not(:disabled) {
   border-color: #BBB;
   color: var(--text-primary);
 }
+
 .format-dropdown-btn:disabled {
   opacity: 0.5;
   cursor: default;
 }
+
 .format-dropdown-btn.has-value {
   color: var(--text-primary);
   font-weight: 600;
 }
+
 .format-dropdown-btn .dropdown-caret {
   margin-left: 8px;
 }
@@ -1215,7 +1271,7 @@ body {
   min-width: 480px !important;
   padding: 16px 20px !important;
   border-radius: 6px !important;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.12) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12) !important;
 }
 
 /* Category grid inside dropdown */
@@ -1232,6 +1288,7 @@ body {
   border-bottom: 1px solid var(--border);
   margin-bottom: 4px;
 }
+
 .format-cat-heading:not(:first-child) {
   margin-top: 12px;
 }
@@ -1263,17 +1320,21 @@ body {
   font-family: var(--font-mono);
   font-size: var(--size-code);
 }
+
 .format-row:hover {
   background: #edf6fa;
 }
+
 .format-row.format-row-disabled {
   opacity: 0.55;
   cursor: default;
   pointer-events: none;
 }
+
 .format-row.format-row-selected {
   background: #edf6fa;
 }
+
 .format-cell-selected {
   outline: 2px solid var(--accent-dark) !important;
 }
@@ -1292,24 +1353,29 @@ body {
   text-align: center;
   min-width: 70px;
 }
+
 .format-row-legacy {
   background: #f0ebe3;
   color: #8a7250;
 }
+
 .format-row-modern {
   background: #e3f0ec;
   color: #3a7a5c;
 }
+
 .format-row-legacy.format-cell-dim,
 .format-row-modern.format-cell-dim {
   opacity: 0.4;
 }
+
 .format-row-legacy.format-cell-selectable,
 .format-row-modern.format-cell-selectable {
   cursor: pointer;
   outline: 2px solid transparent;
   transition: outline-color 0.15s ease, transform 0.1s ease;
 }
+
 .format-row-legacy.format-cell-selectable:hover,
 .format-row-modern.format-cell-selectable:hover {
   outline-color: var(--accent-dark);
