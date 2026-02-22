@@ -1,0 +1,161 @@
+var MAPPING_MT103_PACS008 = {
+  isoNamespace: 'urn:iso:std:iso:20022:tech:xsd:pacs.008.001.08',
+  rootElement: 'FIToFICstmrCdtTrf',
+
+  fields: [
+    {
+      mtTag: '20',
+      mtName: 'Transaction Reference',
+      isoPath: 'CdtTrfTxInf/PmtId/EndToEndId',
+      isoName: 'End to End Identification',
+      transform: 'direct',
+      status: 'clean',
+      notes: 'Direct 1:1 mapping. Max 16 chars in MT, max 35 in ISO.'
+    },
+    {
+      mtTag: '23B',
+      mtName: 'Bank Operation Code',
+      isoPath: null,
+      isoName: null,
+      transform: 'drop',
+      status: 'gap',
+      notes: 'No direct ISO equivalent. CRED operation implied by message type pacs.008.'
+    },
+    {
+      mtTag: '32A',
+      mtName: 'Value Date / Currency / Amount',
+      isoPath: 'CdtTrfTxInf/IntrBkSttlmAmt',
+      isoName: 'Interbank Settlement Amount',
+      transform: 'decode32A',
+      status: 'transformed',
+      notes: 'Compound field split: date→IntrBkSttlmDt, currency→Ccy attribute, amount→element value. MT comma decimal→ISO dot decimal.'
+    },
+    {
+      mtTag: '33B',
+      mtName: 'Currency / Instructed Amount',
+      isoPath: 'CdtTrfTxInf/InstdAmt',
+      isoName: 'Instructed Amount',
+      transform: 'decode33B',
+      status: 'clean',
+      notes: 'Currency→Ccy attribute, amount→element value.'
+    },
+    {
+      mtTag: '50K',
+      mtName: 'Ordering Customer (Name & Address)',
+      isoPath: 'CdtTrfTxInf/Dbtr',
+      isoName: 'Debtor',
+      transform: 'partyToDebtor',
+      status: 'transformed',
+      notes: 'Account→DbtrAcct/Id/IBAN (if IBAN) or DbtrAcct/Id/Othr/Id. Name→Dbtr/Nm. Address lines→Dbtr/PstlAdr (unstructured to structured is lossy).'
+    },
+    {
+      mtTag: '50A',
+      mtName: 'Ordering Customer (BIC)',
+      isoPath: 'CdtTrfTxInf/Dbtr',
+      isoName: 'Debtor',
+      transform: 'partyBICToDebtor',
+      status: 'transformed',
+      notes: 'BIC used as DbtrAgt/FinInstnId/BICFI. Account (if present)→DbtrAcct.'
+    },
+    {
+      mtTag: '52A',
+      mtName: 'Ordering Institution',
+      isoPath: 'CdtTrfTxInf/DbtrAgt/FinInstnId/BICFI',
+      isoName: 'Debtor Agent BIC',
+      transform: 'direct',
+      status: 'clean',
+      notes: 'Direct BIC mapping to debtor agent.'
+    },
+    {
+      mtTag: '53A',
+      mtName: 'Sender Correspondent',
+      isoPath: 'GrpHdr/SttlmInf/SttlmMtd',
+      isoName: 'Settlement Method',
+      transform: 'correspondentToSettlement',
+      status: 'transformed',
+      notes: 'Presence of :53A: implies COVE settlement. BIC maps to intermediary agent context.'
+    },
+    {
+      mtTag: '56A',
+      mtName: 'Intermediary Institution',
+      isoPath: 'CdtTrfTxInf/IntrmyAgt1/FinInstnId/BICFI',
+      isoName: 'Intermediary Agent 1 BIC',
+      transform: 'direct',
+      status: 'clean',
+      notes: 'Direct BIC mapping.'
+    },
+    {
+      mtTag: '57A',
+      mtName: 'Account With Institution',
+      isoPath: 'CdtTrfTxInf/CdtrAgt/FinInstnId/BICFI',
+      isoName: 'Creditor Agent BIC',
+      transform: 'direct',
+      status: 'clean',
+      notes: 'MT Account With Institution maps to ISO Creditor Agent.'
+    },
+    {
+      mtTag: '59',
+      mtName: 'Beneficiary Customer',
+      isoPath: 'CdtTrfTxInf/Cdtr',
+      isoName: 'Creditor',
+      transform: 'partyToCreditor',
+      status: 'transformed',
+      notes: 'Same transformation as :50K:→Debtor but for creditor side. Account→CdtrAcct, Name→Cdtr/Nm, Address→Cdtr/PstlAdr.'
+    },
+    {
+      mtTag: '70',
+      mtName: 'Remittance Information',
+      isoPath: 'CdtTrfTxInf/RmtInf/Ustrd',
+      isoName: 'Unstructured Remittance',
+      transform: 'joinLines',
+      status: 'transformed',
+      notes: 'MT multi-line (4×35) joined into single unstructured string. ISO supports both structured and unstructured — MT can only produce unstructured.'
+    },
+    {
+      mtTag: '71A',
+      mtName: 'Details of Charges',
+      isoPath: 'CdtTrfTxInf/ChrgBr',
+      isoName: 'Charge Bearer',
+      transform: 'chargeBearer',
+      status: 'transformed',
+      notes: 'SHA→SHAR, OUR→DEBT, BEN→CRED. Not exact equivalents — SHA is SWIFT-specific.'
+    },
+    {
+      mtTag: '72',
+      mtName: 'Sender to Receiver Information',
+      isoPath: 'CdtTrfTxInf/InstrForCdtrAgt/InstrInf',
+      isoName: 'Instruction for Creditor Agent',
+      transform: 'joinLines',
+      status: 'transformed',
+      notes: 'Free text instruction. Multi-line joined. Some coded instructions (e.g., /ACC/, /INT/) have structured ISO equivalents not mapped here.'
+    },
+    {
+      mtTag: '77B',
+      mtName: 'Regulatory Reporting',
+      isoPath: 'CdtTrfTxInf/RgltryRptg/Dtls/Inf',
+      isoName: 'Regulatory Reporting Details',
+      transform: 'joinLines',
+      status: 'transformed',
+      notes: 'MT free text mapped to ISO structured reporting. ISO has richer structure (authority, code, amount) — only Inf populated from MT.'
+    }
+  ],
+
+  autoGenerated: [
+    { isoPath: 'GrpHdr/MsgId', description: 'Auto-generated UUID-based message ID' },
+    { isoPath: 'GrpHdr/CreDtTm', description: 'Current ISO datetime' },
+    { isoPath: 'GrpHdr/NbOfTxs', description: 'Always "1" for single MT103' },
+    { isoPath: 'GrpHdr/SttlmInf/SttlmMtd', description: 'Defaults to CLRG unless :53A: present (then COVE)' },
+    { isoPath: 'CdtTrfTxInf/PmtId/InstrId', description: 'Auto-generated instruction ID (no MT equivalent)' }
+  ],
+
+  dataGaps: [
+    { isoPath: 'CdtTrfTxInf/Dbtr/Id/OrgId/LEI', description: 'LEI not available in MT format' },
+    { isoPath: 'CdtTrfTxInf/Cdtr/Id/OrgId/LEI', description: 'LEI not available in MT format' },
+    { isoPath: 'CdtTrfTxInf/Purp/Cd', description: 'Purpose code not available in MT103' },
+    { isoPath: 'CdtTrfTxInf/Dbtr/PstlAdr/Ctry', description: 'Country code requires parsing from unstructured address' }
+  ],
+
+  valueMaps: {
+    chargeBearer: { 'SHA': 'SHAR', 'OUR': 'DEBT', 'BEN': 'CRED' }
+  }
+};

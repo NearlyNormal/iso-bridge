@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ISO Bridge: Payments Format Workbench</title>
+  <!-- UIKit -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uikit@3.25.12/dist/css/uikit.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/uikit@3.25.12/dist/js/uikit.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/uikit@3.25.12/dist/js/uikit-icons.min.js"></script>
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Highlight.js -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-light.min.css" id="hljs-theme">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/xml.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/json.min.js"></script>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+  <!-- NAVBAR -->
+  <nav class="uk-navbar-container" uk-navbar>
+    <div class="uk-navbar-left uk-margin-left">
+      <span class="app-title"><span class="accent">&gt;</span> ISO Bridge</span>
+      <span class="version-badge">v1.0</span>
+      <button class="glossary-btn" id="glossary-btn" type="button" title="About ISO Bridge">
+        <img src="assets/info.svg" alt="About">
+      </button>
+      <select id="country-select" class="navbar-country-select">
+        <option value="">Select country...</option>
+      </select>
+      <div class="toolkit-nav">
+        <a href="../swift-parser/" class="toolkit-link">MT Parser</a>
+        <a href="../iso20022-validator/" class="toolkit-link">ISO Validator</a>
+      </div>
+    </div>
+    <div class="uk-navbar-right uk-margin-right">
+      <button class="validate-btn" id="translate-btn">
+        <img src="assets/validate.svg" alt=""> Translate
+      </button>
+    </div>
+  </nav>
+
+  <!-- FORMAT BAR -->
+  <div class="format-bar">
+    <div class="format-bar-inner">
+      <select id="from-select" class="format-select" disabled>
+        <option value="">Source format...</option>
+      </select>
+      <span class="format-arrow">&rarr;</span>
+      <select id="to-select" class="format-select" disabled>
+        <option value="">Target format...</option>
+      </select>
+    </div>
+    <div id="translation-warning" class="translation-warning" style="display:none">
+      <span class="warning-text"></span>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="app-container">
+    <div class="panels-grid">
+
+      <!-- LEFT PANEL -->
+      <div class="panel-left">
+        <div class="panel-left-toolbar">
+          <span class="panel-left-title" id="source-title">Source</span>
+          <div class="toolbar-buttons">
+            <label class="toolbar-btn" style="margin:0">
+              <img src="assets/upload.svg" alt=""> Upload File
+              <input type="file" id="file-upload" accept=".txt,.mt,.fin,.xml" hidden>
+            </label>
+            <span class="toolbar-or">or</span>
+            <button class="toolbar-btn" type="button" id="load-sample-btn">
+              <img src="assets/load.svg" alt=""> Load Sample
+            </button>
+          </div>
+        </div>
+        <div class="editor-area">
+          <div class="editor-wrap">
+            <textarea id="source-input" placeholder="Select a country and format above, then paste your message here&#10;(or load a sample for quick testing)" spellcheck="false"></textarea>
+            <pre id="source-highlighted"><code id="source-code"></code></pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- BLUE DIVIDER -->
+      <div class="panel-divider"></div>
+
+      <!-- RIGHT PANEL -->
+      <div class="panel-right">
+        <div class="panel-right-toolbar">
+          <span class="panel-right-title">Translated Output</span>
+          <div class="toolbar-right-actions">
+            <div class="output-toggle" id="output-toggle" style="display:none">
+              <button class="toggle-btn active" data-view="xml">XML</button>
+              <button class="toggle-btn" data-view="json">JSON</button>
+            </div>
+            <div class="actions-dropdown-wrap" id="actions-dropdown-wrap">
+              <div class="uk-inline">
+                <button class="toolbar-btn" type="button"><img src="assets/actions.svg" alt=""> Actions &#x25BE;</button>
+                <div uk-dropdown="mode: click; pos: bottom-right" class="actions-dropdown">
+                  <ul class="uk-nav uk-nav-default">
+                    <li><a href="#" id="copy-output-btn"><img src="assets/copy.svg" alt="" class="dropdown-icon"> Copy Output</a></li>
+                    <li><a href="#" id="copy-json-btn"><img src="assets/copy.svg" alt="" class="dropdown-icon"> Copy JSON</a></li>
+                    <li><a href="#" id="download-btn"><img src="assets/export.svg" alt="" class="dropdown-icon"> Download File</a></li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="results-area">
+          <div id="results-content" class="results-body">
+            <div class="empty-state" id="empty-state">
+              <img src="assets/info.svg" alt="" class="empty-state-icon">
+              <div class="empty-state-text">
+                Select a country and format pair above,<br>
+                paste your message, then click<br>
+                <strong>[Translate]</strong> to convert
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- FIELD MAPPING DIAGRAM -->
+  <div class="mapping-section" id="mapping-section" style="display:none">
+    <div class="mapping-header">
+      <span class="mapping-title">Field Mapping</span>
+      <span class="mapping-subtitle" id="mapping-subtitle"></span>
+    </div>
+    <div class="mapping-table-wrap">
+      <table class="mapping-table">
+        <thead>
+          <tr>
+            <th>Source Field</th>
+            <th>Source Value</th>
+            <th></th>
+            <th>Target Field</th>
+            <th>Target Value</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="mapping-tbody"></tbody>
+      </table>
+    </div>
+    <div id="mapping-extras"></div>
+  </div>
+
+  <!-- GLOSSARY MODAL -->
+  <div id="glossary-modal" uk-modal>
+    <div class="uk-modal-dialog uk-modal-body glossary-modal-dialog" style="padding:0">
+      <div class="glossary-header">
+        <h3>About ISO Bridge</h3>
+        <button class="uk-modal-close" type="button" uk-close></button>
+      </div>
+      <div class="glossary-body">
+        <p><strong>ISO Bridge</strong> is a country-aware payments format translation workbench. It converts between SWIFT MT legacy messages and ISO 20022 XML, showing exactly what happens to every field in the process.</p>
+
+        <p>The global payments industry is migrating from SWIFT MT to ISO 20022, but the transition is uneven: different countries, different rails, different timelines. Translation between formats is <em>inherently lossy</em> — ISO 20022 carries richer data than MT can represent, and MT fields don't always have clean ISO equivalents.</p>
+
+        <p><strong>This tool is honest about data loss.</strong> Every translation shows:</p>
+        <ul style="margin:0 0 14px;padding-left:20px">
+          <li>Which fields map cleanly (green)</li>
+          <li>Which fields are transformed (amber)</li>
+          <li>Which data is lost or can't be represented (red)</li>
+          <li>Which ISO fields are auto-generated with no MT source (blue)</li>
+        </ul>
+
+        <div class="glossary-coverage">
+          <p><strong>v1.0 coverage:</strong> MT103 ↔ pacs.008 translation across US, Canada, and Brazil. More formats and countries in v1.1.</p>
+        </div>
+
+        <div class="uk-margin-medium-top">
+          <p><strong>Part of the payments toolkit:</strong></p>
+          <ul style="margin:0;padding-left:20px">
+            <li><a href="../swift-parser/">SWIFT MT Parser</a> — decode MT messages into structured JSON</li>
+            <li><a href="../iso20022-validator/">ISO 20022 Validator</a> — validate XML against schemas and scheme profiles</li>
+            <li><strong>ISO Bridge</strong> (this tool) — translate between formats</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCRIPTS: config first, then engine -->
+  <script src="config/countries.js"></script>
+  <script src="config/translations.js"></script>
+  <script src="config/mappings/mt103-pacs008.js"></script>
+  <script src="config/mappings/pacs008-mt103.js"></script>
+  <script src="assets/mt-parser.js"></script>
+  <script src="assets/app.js"></script>
+</body>
+</html>

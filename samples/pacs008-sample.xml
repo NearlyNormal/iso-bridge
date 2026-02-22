@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pacs.008.001.08">
+  <FIToFICstmrCdtTrf>
+    <GrpHdr>
+      <MsgId>PACS008-20250115-001</MsgId>
+      <CreDtTm>2025-01-15T09:00:00</CreDtTm>
+      <NbOfTxs>1</NbOfTxs>
+      <SttlmInf><SttlmMtd>CLRG</SttlmMtd></SttlmInf>
+    </GrpHdr>
+    <CdtTrfTxInf>
+      <PmtId>
+        <InstrId>INSTR-20250115-001</InstrId>
+        <EndToEndId>E2E-PACS008-001</EndToEndId>
+      </PmtId>
+      <IntrBkSttlmAmt Ccy="USD">10000.00</IntrBkSttlmAmt>
+      <IntrBkSttlmDt>2025-01-15</IntrBkSttlmDt>
+      <ChrgBr>SHAR</ChrgBr>
+      <Dbtr>
+        <Nm>Acme Corporation</Nm>
+        <PstlAdr>
+          <StrtNm>1 Canada Square</StrtNm>
+          <TwnNm>London</TwnNm>
+          <PstCd>E14 5AB</PstCd>
+          <Ctry>GB</Ctry>
+        </PstlAdr>
+      </Dbtr>
+      <DbtrAcct>
+        <Id><IBAN>GB29NWBK60161331926819</IBAN></Id>
+      </DbtrAcct>
+      <DbtrAgt>
+        <FinInstnId><BICFI>NWBKGB2LXXX</BICFI></FinInstnId>
+      </DbtrAgt>
+      <CdtrAgt>
+        <FinInstnId><BICFI>COBADEFFXXX</BICFI></FinInstnId>
+      </CdtrAgt>
+      <Cdtr>
+        <Nm>Global Trade Bank</Nm>
+        <PstlAdr>
+          <StrtNm>Neue Mainzer Str 32</StrtNm>
+          <TwnNm>Frankfurt</TwnNm>
+          <PstCd>60311</PstCd>
+          <Ctry>DE</Ctry>
+        </PstlAdr>
+      </Cdtr>
+      <CdtrAcct>
+        <Id><IBAN>DE89370400440532013000</IBAN></Id>
+      </CdtrAcct>
+      <RmtInf>
+        <Ustrd>INVOICE REF 2025-INV-0042</Ustrd>
+      </RmtInf>
+    </CdtTrfTxInf>
+  </FIToFICstmrCdtTrf>
+</Document>
