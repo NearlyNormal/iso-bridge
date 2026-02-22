@@ -58,19 +58,21 @@ var FORMAT_CATEGORIES = [
     name: 'Customer Payments',
     rows: [
       { desc: 'Customer Credit Transfer', legacy: 'MT103', modern: 'pacs.008' },
-      { desc: 'Payment Initiation', legacy: null, modern: 'pain.001' }
+      { desc: 'Payment Initiation', legacy: 'MT101', modern: 'pain.001' }
     ]
   },
   {
     name: 'FI to FI',
     rows: [
-      { desc: 'Institution Transfer', legacy: 'MT202', modern: null }
+      { desc: 'Institution Transfer', legacy: 'MT202', modern: 'pacs.009' },
+      { desc: 'Cover Payment', legacy: 'MT202COV', modern: 'pacs.009' }
     ]
   },
   {
     name: 'Reporting',
     rows: [
-      { desc: 'Account Statement', legacy: 'MT940', modern: 'camt.053' }
+      { desc: 'Account Statement', legacy: 'MT940', modern: 'camt.053' },
+      { desc: 'Interim Statement', legacy: 'MT942', modern: 'camt.052' }
     ]
   }
 ];
@@ -136,23 +138,12 @@ function onCountryClick(e) {
 }
 
 // ─── FORMAT DROPDOWN GRID BUILDER ───
-function buildFormatGrid(containerId, availableFormats, onSelect, role) {
+function buildFormatGrid(containerId, availableFormats, onSelect, role, currentValue) {
   var container = document.getElementById(containerId);
   container.innerHTML = '';
 
   for (var c = 0; c < FORMAT_CATEGORIES.length; c++) {
     var cat = FORMAT_CATEGORIES[c];
-    // Check if any row in this category has an available format
-    var hasAny = false;
-    for (var r = 0; r < cat.rows.length; r++) {
-      var row = cat.rows[r];
-      if ((row.legacy && availableFormats.indexOf(row.legacy) !== -1) ||
-          (row.modern && availableFormats.indexOf(row.modern) !== -1)) {
-        hasAny = true;
-        break;
-      }
-    }
-    if (!hasAny) continue;
 
     // Category heading
     var heading = document.createElement('div');
@@ -166,15 +157,18 @@ function buildFormatGrid(containerId, availableFormats, onSelect, role) {
     colHead.innerHTML = '<span></span><span>Legacy</span><span>Modern</span>';
     container.appendChild(colHead);
 
-    // Rows
+    // Rows — always show all, grey out unavailable
     for (var r = 0; r < cat.rows.length; r++) {
       var row = cat.rows[r];
       var legacyAvail = row.legacy && availableFormats.indexOf(row.legacy) !== -1;
       var modernAvail = row.modern && availableFormats.indexOf(row.modern) !== -1;
-      if (!legacyAvail && !modernAvail) continue;
+      var rowActive = legacyAvail || modernAvail;
+      var isSelected = currentValue && (row.legacy === currentValue || row.modern === currentValue);
 
       var rowEl = document.createElement('div');
       rowEl.className = 'format-row';
+      if (!rowActive) rowEl.classList.add('format-row-disabled');
+      if (isSelected) rowEl.classList.add('format-row-selected');
 
       // Description
       var descEl = document.createElement('span');
@@ -189,6 +183,7 @@ function buildFormatGrid(containerId, availableFormats, onSelect, role) {
         legEl.textContent = row.legacy;
         if (legacyAvail) {
           legEl.classList.add('format-cell-selectable');
+          if (currentValue === row.legacy) legEl.classList.add('format-cell-selected');
           legEl.setAttribute('data-format', row.legacy);
           legEl.addEventListener('click', function(e) {
             e.stopPropagation();
@@ -210,6 +205,7 @@ function buildFormatGrid(containerId, availableFormats, onSelect, role) {
         modEl.textContent = row.modern;
         if (modernAvail) {
           modEl.classList.add('format-cell-selectable');
+          if (currentValue === row.modern) modEl.classList.add('format-cell-selected');
           modEl.setAttribute('data-format', row.modern);
           modEl.addEventListener('click', function(e) {
             e.stopPropagation();
@@ -224,8 +220,8 @@ function buildFormatGrid(containerId, availableFormats, onSelect, role) {
       }
       rowEl.appendChild(modEl);
 
-      // Clicking the whole row selects whichever is available (prefer the one matching role)
-      if (legacyAvail || modernAvail) {
+      // Clicking the whole row selects whichever is available
+      if (rowActive) {
         rowEl.setAttribute('data-legacy', row.legacy || '');
         rowEl.setAttribute('data-modern', row.modern || '');
         rowEl.setAttribute('data-legacy-avail', legacyAvail ? '1' : '0');
@@ -233,11 +229,9 @@ function buildFormatGrid(containerId, availableFormats, onSelect, role) {
         rowEl.addEventListener('click', function() {
           var la = this.getAttribute('data-legacy-avail') === '1';
           var ma = this.getAttribute('data-modern-avail') === '1';
-          // If only one is available, pick it
           if (la && !ma) onSelect(this.getAttribute('data-legacy'));
           else if (ma && !la) onSelect(this.getAttribute('data-modern'));
           else if (la && ma) {
-            // Both available — for source pick legacy, for target pick modern
             if (role === 'from') onSelect(this.getAttribute('data-legacy'));
             else onSelect(this.getAttribute('data-modern'));
           }
@@ -359,11 +353,11 @@ function showWarning(path) {
   var text = el.querySelector('.warning-text');
 
   if (path.lossless) {
-    el.className = 'translation-warning lossless';
-    text.innerHTML = '&#10003; Translation is lossless — all fields map cleanly';
+    el.className = 'translation-warning';
+    text.innerHTML = '<img src="assets/compare.svg" alt="" class="warning-icon-img"> Translation is lossless — all fields map cleanly';
   } else {
     el.className = 'translation-warning';
-    text.innerHTML = '&#9888; Translation is lossy — ' + path.warnings.length + ' field mapping warning' + (path.warnings.length !== 1 ? 's' : '');
+    text.innerHTML = '<img src="assets/compare.svg" alt="" class="warning-icon-img"> Translation is lossy — ' + path.warnings.length + ' field mapping warning' + (path.warnings.length !== 1 ? 's' : '');
   }
   el.style.display = '';
 }
@@ -1196,7 +1190,7 @@ function renderOutput(result) {
     html += '<div class="conversion-notes">';
     html += '<div class="section-header">Conversion Warnings <span class="section-count">' + warnCount + '</span></div>';
     for (var i = 0; i < result.warnings.length; i++) {
-      html += '<div class="note-item"><span class="note-icon" style="color:var(--warning-dark)">&#9888;</span><span class="note-text">' + escHtml(result.warnings[i]) + '</span></div>';
+      html += '<div class="note-item"><img src="assets/warning.svg" alt="" class="note-icon-img"><span class="note-text">' + escHtml(result.warnings[i]) + '</span></div>';
     }
     html += '</div>';
   }
@@ -1207,7 +1201,7 @@ function renderOutput(result) {
     html += '<div class="section-header">Data Gaps <span class="section-count">' + result.dataGaps.length + '</span></div>';
     for (var i = 0; i < result.dataGaps.length; i++) {
       var g = result.dataGaps[i];
-      html += '<div class="note-item"><span class="note-icon" style="color:var(--error)">&#10005;</span><span class="note-text"><code>' + escHtml(g.isoPath) + '</code> — ' + escHtml(g.description) + '</span></div>';
+      html += '<div class="note-item"><img src="assets/error.svg" alt="" class="note-icon-img note-icon-error"><span class="note-text"><code>' + escHtml(g.isoPath) + '</code> — ' + escHtml(g.description) + '</span></div>';
     }
     html += '</div>';
   }
@@ -1218,7 +1212,7 @@ function renderOutput(result) {
     html += '<div class="section-header">Data Loss <span class="section-count">' + result.dataLoss.length + '</span></div>';
     for (var i = 0; i < result.dataLoss.length; i++) {
       var d = result.dataLoss[i];
-      html += '<div class="note-item"><span class="note-icon" style="color:var(--error)">&#10005;</span><span class="note-text"><code>' + escHtml(d.path) + '</code> — ' + escHtml(d.description) + '</span></div>';
+      html += '<div class="note-item"><img src="assets/error.svg" alt="" class="note-icon-img note-icon-error"><span class="note-text"><code>' + escHtml(d.path) + '</code> — ' + escHtml(d.description) + '</span></div>';
     }
     html += '</div>';
   }
@@ -1283,6 +1277,45 @@ function renderMappingDiagram(result) {
 // ─── UI WIRING ───
 function initUI() {
   populateCountries();
+
+  // Rebuild format grids on dropdown open to reflect current selection
+  UIkit.util.on('#from-dropdown', 'beforeshow', function() {
+    var code = document.getElementById('country-select').value;
+    if (!code) return;
+    var formats = getFormatsForCountry(code);
+    var availableFrom = [];
+    for (var i = 0; i < formats.length; i++) {
+      if (getValidTargets(formats[i]).length > 0) availableFrom.push(formats[i]);
+    }
+    var currentFrom = document.getElementById('from-select').value;
+    buildFormatGrid('from-grid', availableFrom, function(fmt) {
+      document.getElementById('from-select').value = fmt;
+      document.getElementById('from-btn-text').textContent = formatLabel(fmt);
+      document.getElementById('from-btn').classList.add('has-value');
+      UIkit.dropdown(document.getElementById('from-dropdown')).hide(false);
+      onFromChange();
+    }, 'from', currentFrom);
+  });
+
+  UIkit.util.on('#to-dropdown', 'beforeshow', function() {
+    var fromVal = document.getElementById('from-select').value;
+    var countryCode = document.getElementById('country-select').value;
+    if (!fromVal || !countryCode) return;
+    var countryFormats = getFormatsForCountry(countryCode);
+    var targets = getValidTargets(fromVal);
+    var available = [];
+    for (var i = 0; i < targets.length; i++) {
+      if (countryFormats.indexOf(targets[i]) !== -1) available.push(targets[i]);
+    }
+    var currentTo = document.getElementById('to-select').value;
+    buildFormatGrid('to-grid', available, function(fmt) {
+      document.getElementById('to-select').value = fmt;
+      document.getElementById('to-btn-text').textContent = formatLabel(fmt);
+      document.getElementById('to-btn').classList.add('has-value');
+      UIkit.dropdown(document.getElementById('to-dropdown')).hide(false);
+      onToChange();
+    }, 'to', currentTo);
+  });
 
   // from-select and to-select are now hidden inputs, driven by custom dropdowns
   document.getElementById('translate-btn').addEventListener('click', translate);

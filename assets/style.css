@@ -146,7 +146,7 @@ body {
 
 /* ─── DIVIDER ─── */
 .panel-divider {
-  background: var(--accent-bg);
+  background: #B5EAFF;
 }
 
 /* ─── LEFT PANEL ─── */
@@ -1088,6 +1088,9 @@ body {
   transition: border-color 0.2s ease;
   white-space: nowrap;
 }
+.country-dropdown-btn span {
+  text-transform: uppercase;
+}
 .country-dropdown-btn:hover {
   border-color: var(--accent-dark);
 }
@@ -1146,8 +1149,8 @@ body {
 
 /* ─── FORMAT BAR ─── */
 .format-bar {
-  background: #F1F1F1;
-  border-bottom: 1px solid var(--border);
+  background: #B5EAFF;
+  border-bottom: none;
   padding: 12px 20px;
 }
 
@@ -1251,15 +1254,18 @@ body {
   font-size: var(--size-code);
 }
 .format-row:hover {
-  background: var(--bg-subtle);
+  background: #edf6fa;
 }
 .format-row.format-row-disabled {
-  opacity: 0.35;
+  opacity: 0.55;
   cursor: default;
   pointer-events: none;
 }
-.format-row.format-row-active {
-  background: var(--accent-bg);
+.format-row.format-row-selected {
+  background: #edf6fa;
+}
+.format-cell-selected {
+  outline: 2px solid var(--accent-dark) !important;
 }
 
 .format-row-desc {
@@ -1310,30 +1316,27 @@ body {
 
 /* ─── TRANSLATION WARNING BANNER ─── */
 .translation-warning {
-  background: var(--warning-bg);
-  border-left: 3px solid var(--warning);
-  padding: 10px 16px;
-  margin-top: 12px;
-  border-radius: 4px;
-}
-
-.translation-warning .warning-icon {
-  display: inline;
+  background: none;
+  border: none;
+  padding: 10px 0 0;
+  display: flex;
+  align-items: center;
 }
 
 .translation-warning .warning-text {
   font-family: var(--font-mono);
   font-size: var(--size-sm);
-  color: var(--warning-dark);
+  color: #527CA2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.translation-warning.lossless {
-  background: var(--success-bg);
-  border-left-color: var(--success);
-}
-
-.translation-warning.lossless .warning-text {
-  color: var(--success);
+.warning-icon-img {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  opacity: 0.8;
 }
 
 /* ─── FIELD MAPPING DIAGRAM ─── */
@@ -1525,6 +1528,18 @@ body {
 
 .note-icon {
   flex-shrink: 0;
+}
+
+.note-icon-img {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  vertical-align: middle;
+  margin-top: 2px;
+}
+
+.note-icon-img.note-icon-error {
+  filter: brightness(0) saturate(100%) invert(12%) sepia(90%) saturate(5000%) hue-rotate(355deg) brightness(95%) contrast(115%);
 }
 
 .note-text {
