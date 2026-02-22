@@ -30,8 +30,8 @@
       </button>
       <div class="uk-inline country-dropdown-wrap">
         <button class="country-dropdown-btn" type="button" id="country-btn">
-          <span id="country-btn-text">Country...</span>
-          <span class="country-caret">&#x25BE;</span>
+          <span id="country-btn-text">Select country&#x2025;</span>
+          <img src="assets/down.svg" alt="" class="dropdown-caret">
         </button>
         <div uk-dropdown="mode: click; pos: bottom-left" class="country-dropdown" id="country-dropdown">
           <ul class="uk-nav uk-dropdown-nav" id="country-list"></ul>
@@ -53,7 +53,7 @@
       <div class="uk-inline format-dropdown-wrap">
         <button class="format-dropdown-btn" type="button" id="from-btn" disabled>
           <span id="from-btn-text">Source format...</span>
-          <span class="format-caret">&#x25BE;</span>
+          <img src="assets/down.svg" alt="" class="dropdown-caret">
         </button>
         <div uk-dropdown="mode: click; pos: bottom-left" class="format-dropdown" id="from-dropdown">
           <div id="from-grid" class="format-grid"></div>
@@ -64,7 +64,7 @@
       <div class="uk-inline format-dropdown-wrap">
         <button class="format-dropdown-btn" type="button" id="to-btn" disabled>
           <span id="to-btn-text">Target format...</span>
-          <span class="format-caret">&#x25BE;</span>
+          <img src="assets/down.svg" alt="" class="dropdown-caret">
         </button>
         <div uk-dropdown="mode: click; pos: bottom-right" class="format-dropdown" id="to-dropdown">
           <div id="to-grid" class="format-grid"></div>
@@ -172,9 +172,9 @@
       </div>
     </div>
     <!-- LEGEND -->
-    <div class="uk-section uk-section-default uk-padding-small mapping-legend-section">
+    <div class="uk-section uk-section-default uk-padding-small">
       <div class="uk-container uk-container-expand">
-        <div class="mapping-legend-flex">
+        <div class="uk-flex uk-flex-right">
           <div id="mapping-extras"></div>
         </div>
       </div>

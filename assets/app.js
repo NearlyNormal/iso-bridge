@@ -126,6 +126,7 @@ function onCountryClick(e) {
   // Update button text
   var c = COUNTRIES[code];
   document.getElementById('country-btn-text').textContent = c.flag + '  ' + c.name;
+  document.getElementById('country-btn').classList.add('has-value');
   // Mark active
   var links = document.querySelectorAll('#country-list a[data-country]');
   for (var i = 0; i < links.length; i++) {
