@@ -146,28 +146,39 @@
     </div>
   </div>
 
-  <!-- FIELD MAPPING DIAGRAM -->
+  <!-- FIELD MAPPING TABLE -->
   <div class="mapping-section" id="mapping-section" style="display:none">
-    <div class="mapping-header">
-      <span class="mapping-title">Field Mapping</span>
-      <span class="mapping-subtitle" id="mapping-subtitle"></span>
+    <div class="uk-section uk-section-default uk-padding-small">
+      <div class="uk-container uk-container-expand">
+        <div class="mapping-header">
+          <span class="mapping-title">Field Mapping</span>
+          <span class="mapping-subtitle" id="mapping-subtitle"></span>
+        </div>
+        <div class="mapping-table-wrap">
+          <table class="mapping-table">
+            <thead>
+              <tr>
+                <th>Source Field</th>
+                <th>Source Value</th>
+                <th></th>
+                <th>Target Field</th>
+                <th>Target Value</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="mapping-tbody"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
-    <div class="mapping-table-wrap">
-      <table class="mapping-table">
-        <thead>
-          <tr>
-            <th>Source Field</th>
-            <th>Source Value</th>
-            <th></th>
-            <th>Target Field</th>
-            <th>Target Value</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody id="mapping-tbody"></tbody>
-      </table>
+    <!-- LEGEND -->
+    <div class="uk-section uk-section-default uk-padding-small mapping-legend-section">
+      <div class="uk-container uk-container-expand">
+        <div class="mapping-legend-flex">
+          <div id="mapping-extras"></div>
+        </div>
+      </div>
     </div>
-    <div id="mapping-extras"></div>
   </div>
 
   <!-- GLOSSARY MODAL -->

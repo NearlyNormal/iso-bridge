@@ -1201,7 +1201,7 @@ function renderOutput(result) {
     html += '<div class="section-header">Data Gaps <span class="section-count">' + result.dataGaps.length + '</span></div>';
     for (var i = 0; i < result.dataGaps.length; i++) {
       var g = result.dataGaps[i];
-      html += '<div class="note-item"><img src="assets/error.svg" alt="" class="note-icon-img note-icon-error"><span class="note-text"><code>' + escHtml(g.isoPath) + '</code> — ' + escHtml(g.description) + '</span></div>';
+      html += '<div class="note-item"><img src="assets/error.svg" alt="" class="note-icon-img note-icon-error"><span class="note-text"><code>' + escHtml(g.isoPath) + '</code><br>' + escHtml(g.description) + '</span></div>';
     }
     html += '</div>';
   }
@@ -1212,7 +1212,7 @@ function renderOutput(result) {
     html += '<div class="section-header">Data Loss <span class="section-count">' + result.dataLoss.length + '</span></div>';
     for (var i = 0; i < result.dataLoss.length; i++) {
       var d = result.dataLoss[i];
-      html += '<div class="note-item"><img src="assets/error.svg" alt="" class="note-icon-img note-icon-error"><span class="note-text"><code>' + escHtml(d.path) + '</code> — ' + escHtml(d.description) + '</span></div>';
+      html += '<div class="note-item"><img src="assets/error.svg" alt="" class="note-icon-img note-icon-error"><span class="note-text"><code>' + escHtml(d.path) + '</code><br>' + escHtml(d.description) + '</span></div>';
     }
     html += '</div>';
   }
