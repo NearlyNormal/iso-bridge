@@ -52,32 +52,223 @@ function formatLabel(fmt) {
   return FORMAT_LABELS[fmt] || fmt;
 }
 
+// ─── FORMAT CATEGORIES (for dropdown grid) ───
+var FORMAT_CATEGORIES = [
+  {
+    name: 'Customer Payments',
+    rows: [
+      { desc: 'Customer Credit Transfer', legacy: 'MT103', modern: 'pacs.008' },
+      { desc: 'Payment Initiation', legacy: null, modern: 'pain.001' }
+    ]
+  },
+  {
+    name: 'FI to FI',
+    rows: [
+      { desc: 'Institution Transfer', legacy: 'MT202', modern: null }
+    ]
+  },
+  {
+    name: 'Reporting',
+    rows: [
+      { desc: 'Account Statement', legacy: 'MT940', modern: 'camt.053' }
+    ]
+  }
+];
+
 // ─── SELECTOR LOGIC ───
 function populateCountries() {
-  var sel = document.getElementById('country-select');
-  sel.innerHTML = '<option value="">Country...</option>';
+  var list = document.getElementById('country-list');
+  list.innerHTML = '';
   var codes = Object.keys(COUNTRIES);
+  var active = [];
+  var planned = [];
   for (var i = 0; i < codes.length; i++) {
-    var c = COUNTRIES[codes[i]];
-    var opt = document.createElement('option');
-    opt.value = codes[i];
-    opt.textContent = c.flag + ' ' + c.name;
-    sel.appendChild(opt);
+    if (COUNTRIES[codes[i]].planned) planned.push(codes[i]);
+    else active.push(codes[i]);
+  }
+  // Active countries
+  for (var i = 0; i < active.length; i++) {
+    var c = COUNTRIES[active[i]];
+    var li = document.createElement('li');
+    var a = document.createElement('a');
+    a.href = '#';
+    a.setAttribute('data-country', active[i]);
+    a.innerHTML = '<span class="country-flag">' + c.flag + '</span>  <span class="country-name">' + escHtml(c.name) + '</span>';
+    a.addEventListener('click', onCountryClick);
+    li.appendChild(a);
+    list.appendChild(li);
+  }
+  // Divider
+  var divLi = document.createElement('li');
+  divLi.className = 'uk-nav-divider';
+  list.appendChild(divLi);
+  // Planned countries (greyed out)
+  for (var i = 0; i < planned.length; i++) {
+    var c = COUNTRIES[planned[i]];
+    var li = document.createElement('li');
+    var a = document.createElement('a');
+    a.href = '#';
+    a.className = 'country-planned';
+    a.innerHTML = '<span class="country-flag">' + c.flag + '</span>  <span class="country-name">' + escHtml(c.name) + '</span><span class="country-soon">coming soon</span>';
+    li.appendChild(a);
+    list.appendChild(li);
+  }
+}
+
+function onCountryClick(e) {
+  e.preventDefault();
+  var code = e.currentTarget.getAttribute('data-country');
+  if (!code) return;
+  // Update hidden input
+  document.getElementById('country-select').value = code;
+  // Update button text
+  var c = COUNTRIES[code];
+  document.getElementById('country-btn-text').textContent = c.flag + '  ' + c.name;
+  // Mark active
+  var links = document.querySelectorAll('#country-list a[data-country]');
+  for (var i = 0; i < links.length; i++) {
+    links[i].classList.toggle('country-active', links[i].getAttribute('data-country') === code);
+  }
+  // Close dropdown
+  UIkit.dropdown(document.getElementById('country-dropdown')).hide(false);
+  // Trigger change logic
+  onCountryChange();
+}
+
+// ─── FORMAT DROPDOWN GRID BUILDER ───
+function buildFormatGrid(containerId, availableFormats, onSelect, role) {
+  var container = document.getElementById(containerId);
+  container.innerHTML = '';
+
+  for (var c = 0; c < FORMAT_CATEGORIES.length; c++) {
+    var cat = FORMAT_CATEGORIES[c];
+    // Check if any row in this category has an available format
+    var hasAny = false;
+    for (var r = 0; r < cat.rows.length; r++) {
+      var row = cat.rows[r];
+      if ((row.legacy && availableFormats.indexOf(row.legacy) !== -1) ||
+          (row.modern && availableFormats.indexOf(row.modern) !== -1)) {
+        hasAny = true;
+        break;
+      }
+    }
+    if (!hasAny) continue;
+
+    // Category heading
+    var heading = document.createElement('div');
+    heading.className = 'format-cat-heading';
+    heading.textContent = cat.name;
+    container.appendChild(heading);
+
+    // Column sub-headers
+    var colHead = document.createElement('div');
+    colHead.className = 'format-col-headers';
+    colHead.innerHTML = '<span></span><span>Legacy</span><span>Modern</span>';
+    container.appendChild(colHead);
+
+    // Rows
+    for (var r = 0; r < cat.rows.length; r++) {
+      var row = cat.rows[r];
+      var legacyAvail = row.legacy && availableFormats.indexOf(row.legacy) !== -1;
+      var modernAvail = row.modern && availableFormats.indexOf(row.modern) !== -1;
+      if (!legacyAvail && !modernAvail) continue;
+
+      var rowEl = document.createElement('div');
+      rowEl.className = 'format-row';
+
+      // Description
+      var descEl = document.createElement('span');
+      descEl.className = 'format-row-desc';
+      descEl.textContent = row.desc;
+      rowEl.appendChild(descEl);
+
+      // Legacy cell
+      var legEl = document.createElement('span');
+      legEl.className = 'format-row-legacy';
+      if (row.legacy) {
+        legEl.textContent = row.legacy;
+        if (legacyAvail) {
+          legEl.classList.add('format-cell-selectable');
+          legEl.setAttribute('data-format', row.legacy);
+          legEl.addEventListener('click', function(e) {
+            e.stopPropagation();
+            onSelect(this.getAttribute('data-format'));
+          });
+        } else {
+          legEl.classList.add('format-cell-dim');
+        }
+      } else {
+        legEl.textContent = '—';
+        legEl.classList.add('format-cell-dim');
+      }
+      rowEl.appendChild(legEl);
+
+      // Modern cell
+      var modEl = document.createElement('span');
+      modEl.className = 'format-row-modern';
+      if (row.modern) {
+        modEl.textContent = row.modern;
+        if (modernAvail) {
+          modEl.classList.add('format-cell-selectable');
+          modEl.setAttribute('data-format', row.modern);
+          modEl.addEventListener('click', function(e) {
+            e.stopPropagation();
+            onSelect(this.getAttribute('data-format'));
+          });
+        } else {
+          modEl.classList.add('format-cell-dim');
+        }
+      } else {
+        modEl.textContent = '—';
+        modEl.classList.add('format-cell-dim');
+      }
+      rowEl.appendChild(modEl);
+
+      // Clicking the whole row selects whichever is available (prefer the one matching role)
+      if (legacyAvail || modernAvail) {
+        rowEl.setAttribute('data-legacy', row.legacy || '');
+        rowEl.setAttribute('data-modern', row.modern || '');
+        rowEl.setAttribute('data-legacy-avail', legacyAvail ? '1' : '0');
+        rowEl.setAttribute('data-modern-avail', modernAvail ? '1' : '0');
+        rowEl.addEventListener('click', function() {
+          var la = this.getAttribute('data-legacy-avail') === '1';
+          var ma = this.getAttribute('data-modern-avail') === '1';
+          // If only one is available, pick it
+          if (la && !ma) onSelect(this.getAttribute('data-legacy'));
+          else if (ma && !la) onSelect(this.getAttribute('data-modern'));
+          else if (la && ma) {
+            // Both available — for source pick legacy, for target pick modern
+            if (role === 'from') onSelect(this.getAttribute('data-legacy'));
+            else onSelect(this.getAttribute('data-modern'));
+          }
+        });
+      }
+
+      container.appendChild(rowEl);
+    }
   }
 }
 
 function onCountryChange() {
   var code = document.getElementById('country-select').value;
-  var fromSel = document.getElementById('from-select');
-  var toSel = document.getElementById('to-select');
+  var fromInput = document.getElementById('from-select');
+  var toInput = document.getElementById('to-select');
+  var fromBtn = document.getElementById('from-btn');
+  var toBtn = document.getElementById('to-btn');
 
-  fromSel.innerHTML = '<option value="">Source format...</option>';
-  toSel.innerHTML = '<option value="">Target format...</option>';
-  toSel.disabled = true;
+  fromInput.value = '';
+  toInput.value = '';
+  document.getElementById('from-btn-text').textContent = 'Source format...';
+  document.getElementById('to-btn-text').textContent = 'Target format...';
+  fromBtn.classList.remove('has-value');
+  toBtn.classList.remove('has-value');
+  toBtn.disabled = true;
+  document.getElementById('from-grid').innerHTML = '';
+  document.getElementById('to-grid').innerHTML = '';
   hideWarning();
 
   if (!code) {
-    fromSel.disabled = true;
+    fromBtn.disabled = true;
     return;
   }
 
@@ -90,32 +281,37 @@ function onCountryChange() {
     }
   }
 
-  for (var i = 0; i < availableFrom.length; i++) {
-    var opt = document.createElement('option');
-    opt.value = availableFrom[i];
-    opt.textContent = formatLabel(availableFrom[i]);
-    fromSel.appendChild(opt);
-  }
-  fromSel.disabled = false;
+  buildFormatGrid('from-grid', availableFrom, function(fmt) {
+    fromInput.value = fmt;
+    document.getElementById('from-btn-text').textContent = formatLabel(fmt);
+    fromBtn.classList.add('has-value');
+    UIkit.dropdown(document.getElementById('from-dropdown')).hide(false);
+    onFromChange();
+  }, 'from');
+
+  fromBtn.disabled = false;
   updateSourceTitle();
 }
 
 function onFromChange() {
   var fromVal = document.getElementById('from-select').value;
-  var toSel = document.getElementById('to-select');
+  var toInput = document.getElementById('to-select');
+  var toBtn = document.getElementById('to-btn');
   var countryCode = document.getElementById('country-select').value;
   var countryFormats = getFormatsForCountry(countryCode);
 
-  toSel.innerHTML = '<option value="">Target format...</option>';
+  toInput.value = '';
+  document.getElementById('to-btn-text').textContent = 'Target format...';
+  toBtn.classList.remove('has-value');
+  document.getElementById('to-grid').innerHTML = '';
   hideWarning();
 
   if (!fromVal) {
-    toSel.disabled = true;
+    toBtn.disabled = true;
     return;
   }
 
   var targets = getValidTargets(fromVal);
-  // Filter to targets available in this country
   var available = [];
   for (var i = 0; i < targets.length; i++) {
     if (countryFormats.indexOf(targets[i]) !== -1) {
@@ -123,17 +319,21 @@ function onFromChange() {
     }
   }
 
-  for (var i = 0; i < available.length; i++) {
-    var opt = document.createElement('option');
-    opt.value = available[i];
-    opt.textContent = formatLabel(available[i]);
-    toSel.appendChild(opt);
-  }
-  toSel.disabled = false;
+  buildFormatGrid('to-grid', available, function(fmt) {
+    toInput.value = fmt;
+    document.getElementById('to-btn-text').textContent = formatLabel(fmt);
+    toBtn.classList.add('has-value');
+    UIkit.dropdown(document.getElementById('to-dropdown')).hide(false);
+    onToChange();
+  }, 'to');
+
+  toBtn.disabled = false;
 
   // Auto-select if only one target
   if (available.length === 1) {
-    toSel.value = available[0];
+    toInput.value = available[0];
+    document.getElementById('to-btn-text').textContent = formatLabel(available[0]);
+    toBtn.classList.add('has-value');
     onToChange();
   }
   updateSourceTitle();
@@ -1070,10 +1270,13 @@ function renderMappingDiagram(result) {
 
   // Legend
   extras.innerHTML = '<div class="mapping-legend">' +
-    '<span class="mapping-status status-clean">Clean</span> Direct 1:1 mapping · ' +
-    '<span class="mapping-status status-transformed">Transformed</span> Value changed during conversion · ' +
-    '<span class="mapping-status status-gap">Gap</span> No equivalent in target format · ' +
-    '<span class="mapping-status status-auto">Auto</span> Auto-generated (no source field)' +
+    '<div class="mapping-legend-heading">Legend</div>' +
+    '<div class="mapping-legend-list">' +
+      '<div class="mapping-legend-item"><span class="mapping-status status-clean">Clean</span><span class="legend-desc">Direct 1:1 mapping</span></div>' +
+      '<div class="mapping-legend-item"><span class="mapping-status status-transformed">Transformed</span><span class="legend-desc">Value changed during conversion</span></div>' +
+      '<div class="mapping-legend-item"><span class="mapping-status status-gap">Gap</span><span class="legend-desc">No equivalent in target format</span></div>' +
+      '<div class="mapping-legend-item"><span class="mapping-status status-auto">Auto</span><span class="legend-desc">Auto-generated (no source field)</span></div>' +
+    '</div>' +
     '</div>';
 }
 
@@ -1081,9 +1284,7 @@ function renderMappingDiagram(result) {
 function initUI() {
   populateCountries();
 
-  document.getElementById('country-select').addEventListener('change', onCountryChange);
-  document.getElementById('from-select').addEventListener('change', onFromChange);
-  document.getElementById('to-select').addEventListener('change', onToChange);
+  // from-select and to-select are now hidden inputs, driven by custom dropdowns
   document.getElementById('translate-btn').addEventListener('click', translate);
 
   // Glossary modal
@@ -1182,25 +1383,20 @@ function highlightSource() {
 }
 
 // ─── SAMPLE LOADER ───
+var INLINE_SAMPLES = {
+  'MT103': '{1:F01NWBKGB2LAXXX0000000000}\n{2:I103COBADEFFXXXXN}\n{4:\n:20:SHANX-20250101-001\n:23B:CRED\n:32A:250101USD10000,00\n:50K:/GB29NWBK60161331926819\nAcme Corporation\n1 Canada Square\nLondon E14 5AB\n:52A:NWBKGB2L\n:57A:COBADEFF\n:59:/DE89370400440532013000\nGlobal Trade Bank\nNeue Mainzer Str 32\nFrankfurt 60311\n:70:INVOICE REF 2025-INV-0042\n:71A:SHA\n-}',
+  'pacs.008': '<?xml version="1.0" encoding="UTF-8"?>\n<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pacs.008.001.08">\n  <FIToFICstmrCdtTrf>\n    <GrpHdr>\n      <MsgId>PACS008-20250115-001</MsgId>\n      <CreDtTm>2025-01-15T09:00:00</CreDtTm>\n      <NbOfTxs>1</NbOfTxs>\n      <SttlmInf><SttlmMtd>CLRG</SttlmMtd></SttlmInf>\n    </GrpHdr>\n    <CdtTrfTxInf>\n      <PmtId>\n        <InstrId>INSTR-20250115-001</InstrId>\n        <EndToEndId>E2E-PACS008-001</EndToEndId>\n      </PmtId>\n      <IntrBkSttlmAmt Ccy="USD">10000.00</IntrBkSttlmAmt>\n      <IntrBkSttlmDt>2025-01-15</IntrBkSttlmDt>\n      <ChrgBr>SHAR</ChrgBr>\n      <Dbtr>\n        <Nm>Acme Corporation</Nm>\n        <PstlAdr>\n          <StrtNm>1 Canada Square</StrtNm>\n          <TwnNm>London</TwnNm>\n          <PstCd>E14 5AB</PstCd>\n          <Ctry>GB</Ctry>\n        </PstlAdr>\n      </Dbtr>\n      <DbtrAcct>\n        <Id><IBAN>GB29NWBK60161331926819</IBAN></Id>\n      </DbtrAcct>\n      <DbtrAgt>\n        <FinInstnId><BICFI>NWBKGB2LXXX</BICFI></FinInstnId>\n      </DbtrAgt>\n      <CdtrAgt>\n        <FinInstnId><BICFI>COBADEFFXXX</BICFI></FinInstnId>\n      </CdtrAgt>\n      <Cdtr>\n        <Nm>Global Trade Bank</Nm>\n        <PstlAdr>\n          <StrtNm>Neue Mainzer Str 32</StrtNm>\n          <TwnNm>Frankfurt</TwnNm>\n          <PstCd>60311</PstCd>\n          <Ctry>DE</Ctry>\n        </PstlAdr>\n      </Cdtr>\n      <CdtrAcct>\n        <Id><IBAN>DE89370400440532013000</IBAN></Id>\n      </CdtrAcct>\n      <RmtInf>\n        <Ustrd>INVOICE REF 2025-INV-0042</Ustrd>\n      </RmtInf>\n    </CdtTrfTxInf>\n  </FIToFICstmrCdtTrf>\n</Document>'
+};
+
 function loadSample(format) {
-  var url = '';
-  if (format === 'MT103') url = 'samples/mt103-sample.txt';
-  else if (format === 'pacs.008') url = 'samples/pacs008-sample.xml';
-  else {
+  var text = INLINE_SAMPLES[format];
+  if (!text) {
     showToast('No sample available for ' + format, true);
     return;
   }
-
-  fetch(url)
-    .then(function(r) { return r.text(); })
-    .then(function(text) {
-      document.getElementById('source-input').value = text;
-      highlightSource();
-      showToast('Sample loaded: ' + format);
-    })
-    .catch(function() {
-      showToast('Failed to load sample', true);
-    });
+  document.getElementById('source-input').value = text;
+  highlightSource();
+  showToast('Sample loaded: ' + format);
 }
 
 // ─── CLIPBOARD / DOWNLOAD ───

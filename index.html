@@ -28,13 +28,16 @@
       <button class="glossary-btn" id="glossary-btn" type="button" title="About ISO Bridge">
         <img src="assets/info.svg" alt="About">
       </button>
-      <select id="country-select" class="navbar-country-select">
-        <option value="">Select country...</option>
-      </select>
-      <div class="toolkit-nav">
-        <a href="../swift-parser/" class="toolkit-link">MT Parser</a>
-        <a href="../iso20022-validator/" class="toolkit-link">ISO Validator</a>
+      <div class="uk-inline country-dropdown-wrap">
+        <button class="country-dropdown-btn" type="button" id="country-btn">
+          <span id="country-btn-text">Country...</span>
+          <span class="country-caret">&#x25BE;</span>
+        </button>
+        <div uk-dropdown="mode: click; pos: bottom-left" class="country-dropdown" id="country-dropdown">
+          <ul class="uk-nav uk-dropdown-nav" id="country-list"></ul>
+        </div>
       </div>
+      <input type="hidden" id="country-select" value="">
     </div>
     <div class="uk-navbar-right uk-margin-right">
       <button class="validate-btn" id="translate-btn">
@@ -46,13 +49,27 @@
   <!-- FORMAT BAR -->
   <div class="format-bar">
     <div class="format-bar-inner">
-      <select id="from-select" class="format-select" disabled>
-        <option value="">Source format...</option>
-      </select>
+      <input type="hidden" id="from-select" value="">
+      <div class="uk-inline format-dropdown-wrap">
+        <button class="format-dropdown-btn" type="button" id="from-btn" disabled>
+          <span id="from-btn-text">Source format...</span>
+          <span class="format-caret">&#x25BE;</span>
+        </button>
+        <div uk-dropdown="mode: click; pos: bottom-left" class="format-dropdown" id="from-dropdown">
+          <div id="from-grid" class="format-grid"></div>
+        </div>
+      </div>
       <span class="format-arrow">&rarr;</span>
-      <select id="to-select" class="format-select" disabled>
-        <option value="">Target format...</option>
-      </select>
+      <input type="hidden" id="to-select" value="">
+      <div class="uk-inline format-dropdown-wrap">
+        <button class="format-dropdown-btn" type="button" id="to-btn" disabled>
+          <span id="to-btn-text">Target format...</span>
+          <span class="format-caret">&#x25BE;</span>
+        </button>
+        <div uk-dropdown="mode: click; pos: bottom-right" class="format-dropdown" id="to-dropdown">
+          <div id="to-grid" class="format-grid"></div>
+        </div>
+      </div>
     </div>
     <div id="translation-warning" class="translation-warning" style="display:none">
       <span class="warning-text"></span>
