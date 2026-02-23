@@ -63,29 +63,41 @@ The tool is deliberately simple to use and deliberately transparent about its in
 
 You paste a source message on the left. You get the translated output on the right, in XML or JSON. Below the translation, a field mapping table shows every source field, its destination equivalent, and the quality of that mapping: clean, approximate, or data lost.
 
-### v1.0 Translation Paths
+### Translation Paths
 
 | Source | Target | Category | Lossy? |
 |--------|--------|----------|--------|
-| MT103 | pacs.008.001.08 | Customer Payments | Yes |
-| pacs.008.001.08 | MT103 | Customer Payments | Yes |
-| MT202 | pacs.009.001.08 | FI to FI Transfers | Yes |
-| pacs.009.001.08 | MT202 | FI to FI Transfers | Yes |
-| MT940 | camt.053.001.08 | Account Statements | Yes |
-| camt.053.001.08 | MT940 | Account Statements | Yes |
+| MT103 | pacs.008 | Customer Payments | Yes |
+| pacs.008 | MT103 | Customer Payments | Yes |
+| MT101 | pain.001 | Payment Initiation | Yes |
+| pain.001 | MT101 | Payment Initiation | Yes |
+| MT103 RETURN | pacs.004 | Payment Return | Yes |
+| pacs.004 | MT103 RETURN | Payment Return | Yes |
+| MT104 | pain.008 | Direct Debit | Yes |
+| pain.008 | MT104 | Direct Debit | Yes |
+| MT202 | pacs.009 | FI to FI Transfers | Yes |
+| pacs.009 | MT202 | FI to FI Transfers | Yes |
+| MT900 | camt.054 | Debit Notification | Yes |
+| camt.054 | MT900 | Debit Notification | Yes |
+| MT910 | camt.054 | Credit Notification | Yes |
+| camt.054 | MT910 | Credit Notification | Yes |
+| MT940 | camt.053 | Account Statements | Yes |
+| camt.053 | MT940 | Account Statements | Yes |
+| MT942 | camt.052 | Intraday Reporting | Yes |
+| camt.052 | MT942 | Intraday Reporting | Yes |
 
-### v1.0 Country Coverage
+### Country Coverage
 
-| Country | Active Rails | Formats | Status |
-|---------|-------------|---------|--------|
-| United States | SWIFT, Fedwire, CHIPS, ACH, RTP, FedNow | MT103, MT202, MT940, pacs.008, pacs.009, pain.001, camt.053 | Active |
-| Canada | SWIFT, Lynx, ACSS, RTR | MT103, MT940, pacs.008, pain.001, camt.053 | Active |
-| Brazil | SWIFT, PIX, SITRAF, SPB | pacs.008, pain.001, camt.053 | Active (ISO-native) |
-| Mexico | SWIFT, SPEI, CoDi | MT103, MT202, MT940, pacs.008, pacs.009, pain.001, camt.053 | Active |
+| Country | Active Rails | Status |
+|---------|-------------|--------|
+| United States | SWIFT, Fedwire, CHIPS, ACH, RTP, FedNow | Active — all 18 translation paths |
+| Canada | SWIFT, Lynx, ACSS, RTR | Active — all 18 translation paths |
+| Brazil | SWIFT, PIX, SITRAF, SPB | Active (ISO-native, no MT formats) |
+| Mexico | SWIFT, SPEI, CoDi | Active — all 18 translation paths |
 
 Brazil is fully ISO 20022-native. Its domestic rails (PIX, SITRAF) were built on ISO 20022 from the start, so there is no legacy format translation needed. The tool reflects this: selecting Brazil disables the format selectors and displays an informational banner.
 
-Mexico's domestic rail (SPEI) uses proprietary XML, not ISO 20022. Cross-border payments flow through SWIFT, where both MT and ISO 20022 formats coexist. All six translation paths are active for Mexico.
+Mexico's domestic rail (SPEI) uses proprietary XML, not ISO 20022. Cross-border payments flow through SWIFT, where both MT and ISO 20022 formats coexist.
 
 Five additional countries (UK, EU, Singapore, Australia, India) are defined in the country registry and visible in the UI as planned.
 
@@ -99,29 +111,31 @@ Under the hood, the tool is config-driven. The browser interface is the visible 
 
 ```
 iso-bridge/
-├── index.html                          # UI shell
+├── index.html                          # UI shell — only loads scripts
 ├── assets/
-│   ├── app.js                          # Translation engine and UI wiring
-│   ├── mt-parser.js                    # MT message parser (extracted from swift-parser)
-│   └── style.css                       # Design system
-├── samples/
-│   ├── mt103.js                        # Sample MT103 message
-│   ├── pacs008.js                      # Sample pacs.008 message
-│   ├── mt202.js                        # Sample MT202 message
-│   ├── pacs009.js                      # Sample pacs.009 message
-│   ├── mt940.js                        # Sample MT940 message
-│   └── camt053.js                      # Sample camt.053 message
+│   ├── app.js                          # Translation engine and UI wiring (never changes for new formats)
+│   ├── mt-parser.js                    # MT message parser (never changes for new formats)
+│   └── style.css                       # Design system (never changes for new formats)
+├── samples/                            # One file per format, discovered automatically
+│   ├── mt103.js                        # var SAMPLE_MT103 = `...`
+│   ├── mt103-return.js                 # var SAMPLE_MT103RETURN = `...`
+│   ├── mt101.js, mt104.js              # Payment initiation / direct debit
+│   ├── mt202.js                        # FI to FI transfer
+│   ├── mt900.js, mt910.js              # Debit / credit notifications
+│   ├── mt940.js, mt942.js              # Statement / intraday report
+│   ├── pacs004.js, pacs008.js          # Payment return / credit transfer
+│   ├── pacs009.js                      # FI credit transfer
+│   ├── pain001.js, pain008.js          # Customer initiation / direct debit
+│   ├── camt052.js, camt053.js          # Intraday report / statement
+│   └── camt054.js                      # Debit/credit notification
 ├── config/
-│   ├── countries.js                    # Country registry
-│   ├── formats.js                      # Format labels, categories, and sample references
-│   ├── translations.js                 # Translation path definitions
-│   └── mappings/
-│       ├── mt103-pacs008.js            # Field-by-field: MT103 → pacs.008
-│       ├── pacs008-mt103.js            # Field-by-field: pacs.008 → MT103
-│       ├── mt202-pacs009.js            # Field-by-field: MT202 → pacs.009
-│       ├── pacs009-mt202.js            # Field-by-field: pacs.009 → MT202
-│       ├── mt940-camt053.js            # Field-by-field: MT940 → camt.053
-│       └── camt053-mt940.js            # Field-by-field: camt.053 → MT940
+│   ├── countries.js                    # Country registry (formats + rails per country)
+│   ├── formats.js                      # Format labels and dropdown categories
+│   ├── translations.js                 # Translation path definitions + warnings
+│   └── mappings/                       # One file per direction (18 bidirectional paths = 36 files)
+│       ├── mt103-pacs008.js            # MT103 → pacs.008
+│       ├── pacs008-mt103.js            # pacs.008 → MT103
+│       └── ...                         # (same pattern for all paths)
 ```
 
 The engine (`app.js`) reads from three configuration layers at runtime. It contains no hardcoded knowledge about countries, formats, or field mappings. All of that lives in `config/`.
@@ -192,9 +206,13 @@ Mapping files also declare `autoGenerated` fields (ISO elements that have no MT 
 
 ---
 
-## Adding Support for a New Country
+## Adding a New Country or Format
 
-Adding a country requires no changes to the engine. Edit `config/countries.js` and add an entry:
+**Everything is config. `app.js`, `mt-parser.js`, and `style.css` never change.**
+
+### Adding a country
+
+Edit `config/countries.js`. Add an entry, or remove `planned: true` from an existing one:
 
 ```js
 SG: {
@@ -202,67 +220,32 @@ SG: {
   flag: '🇸🇬',
   formats: ['MT103', 'pacs.008', 'pain.001', 'camt.053'],
   rails: ['SWIFT', 'FAST', 'MEPS+', 'PayNow'],
-  notes: 'MEPS+ (large value) ISO 20022 native. FAST real-time payments.'
+  notes: 'MEPS+ (large value) ISO 20022 native.'
 }
 ```
 
-Remove the `planned: true` flag to activate it. The country will appear in the dropdown, and the format selectors will filter based on its `formats` array. If the translation paths for those formats already exist (e.g., MT103 to pacs.008), they work immediately for the new country.
+The country appears in the dropdown. The format selectors filter based on its `formats` array. If translation paths for those formats already exist, they work immediately.
 
-## Adding a New Translation Path
+### Adding a new translation path
 
-To add a new format pair (e.g., MT950 to camt.052), you only need config files. No changes to the engine (`app.js`).
+To add a new format pair (e.g., MT950 ↔ camt.052), you change exactly these files:
 
-1. Create `config/mappings/mt950-camt052.js` with a mapping variable containing the field array and engine metadata:
-   ```js
-   var MAPPING_MT950_CAMT052 = {
-     direction: 'mt-to-iso',
-     sourceType: 'MT950',
-     targetType: 'camt.052',
-     fields: [ /* field-by-field mapping */ ],
-     autoGenerated: [ /* ISO fields with no MT source */ ],
-     dataGaps: [ /* MT fields that cannot be represented */ ],
-     // Engine metadata: fixedElements, attributes, elementOrder (MT→ISO)
-     // or: envelope, mtFieldOrder, isoRootElement, isoTxPath (ISO→MT)
-   };
-   ```
+| # | File | What to do |
+|---|------|------------|
+| 1 | `samples/mt950.js` | Create sample: `var SAMPLE_MT950 = \`...\`` |
+| 2 | `samples/camt052.js` | Create sample: `var SAMPLE_CAMT052 = \`...\`` |
+| 3 | `config/mappings/mt950-camt052.js` | Create MT→ISO mapping config |
+| 4 | `config/mappings/camt052-mt950.js` | Create ISO→MT mapping config |
+| 5 | `config/formats.js` | Add to `FORMAT_LABELS` and `FORMAT_CATEGORIES` |
+| 6 | `config/translations.js` | Add 2 entries (forward + reverse) with warnings |
+| 7 | `config/countries.js` | Add format codes to relevant country `formats` arrays |
+| 8 | `index.html` | Add `<script>` tags for the 4 new files |
 
-2. Add a `<script>` tag in `index.html` to load it:
-   ```html
-   <script src="config/mappings/mt950-camt052.js"></script>
-   ```
+That is the complete list. Nothing else changes.
 
-3. Add an entry in `config/translations.js`:
-   ```js
-   {
-     from: 'MT950',
-     to: 'camt.052',
-     lossless: false,
-     mappingRef: 'MAPPING_MT950_CAMT052',
-     warnings: ['...']
-   }
-   ```
+Sample variables follow the naming convention `SAMPLE_` + format key with dots, hyphens, and spaces removed, uppercased (e.g., `pacs.008` → `SAMPLE_PACS008`, `MT103 RETURN` → `SAMPLE_MT103RETURN`). The "Load Sample" button discovers them automatically by this convention — there is no sample registry to maintain.
 
-4. Add a sample message in `samples/`:
-   ```js
-   // samples/mt950.js
-   var SAMPLE_MT950 = `{1:F01BANKUS33XXXX0000000000}
-   {2:O9500845250215BANKUS33XXXX00000000002502150845N}
-   {4:
-   :20:STMT-20250215-001
-   ...
-   -}`;
-   ```
-   Use a template literal (backticks) so the message is readable as-is. The variable name follows the pattern `SAMPLE_` + uppercase format with dots removed (e.g., `SAMPLE_PACS008`, `SAMPLE_CAMT053`). Then add a `<script>` tag in `index.html` before the config scripts:
-   ```html
-   <script src="samples/mt950.js"></script>
-   ```
-
-5. Add format labels and sample reference in `config/formats.js`:
-   - Add display names to `FORMAT_LABELS` (e.g., `'MT950': 'MT950 — Interim Statement'`)
-   - Add a dropdown category row to `FORMAT_CATEGORIES` if needed
-   - Add a reference to the sample variable in `INLINE_SAMPLES` (e.g., `'MT950': SAMPLE_MT950`)
-
-The engine discovers the new path automatically. The generic `convertMTtoISO` and `convertISOtoMT` functions use the mapping config's `direction`, `fields`, transforms, and structural metadata to drive the conversion. Any country whose `formats` array includes both source and target formats will show the path in its format selectors.
+The engine discovers translation paths from `config/translations.js`. Any country whose `formats` array includes both the source and target format will show the path in its format selectors.
 
 ---
 
@@ -301,6 +284,5 @@ Each tool addresses a different question. The parser asks "what does this messag
 ### v1.1
 
 - UK, EU, Singapore, Australia, India country activation
-- MT950 / camt.052 (interim statements)
 - Field mapping reference tab (standalone browsable reference)
 - Message builder (generate ISO XML from form inputs)

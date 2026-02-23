@@ -1372,12 +1372,27 @@ body {
   margin-left: 8px;
 }
 
-/* Format dropdown panel */
-.format-dropdown {
+/* Format dropdown panel — override UIKit positioning.
+   UIKit's CSS uses !important on .uk-drop positioning. We use ID selectors
+   for maximum specificity to beat both UIKit CSS and inline styles. */
+.format-dropdown-wrap {
+  position: relative;
+}
+
+#from-dropdown,
+#to-dropdown {
+  position: relative !important;
+  top: auto !important;
+  left: auto !important;
+  right: auto !important;
   min-width: 480px !important;
+  max-height: calc(100vh - 160px) !important;
+  overflow-y: auto !important;
   padding: 16px 20px !important;
   border-radius: 6px !important;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12) !important;
+  margin-top: 4px !important;
+  width: 100% !important;
 }
 
 /* Category grid inside dropdown */
@@ -1447,6 +1462,11 @@ body {
 
 .format-row-desc {
   color: var(--text-primary);
+  font-weight: 400;
+}
+
+.format-row:hover .format-row-desc,
+.format-row.format-row-selected .format-row-desc {
   font-weight: 500;
 }
 

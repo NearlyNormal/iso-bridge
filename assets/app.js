@@ -2181,10 +2181,12 @@ function highlightSource() {
 }
 
 // ─── SAMPLE LOADER ───
-// INLINE_SAMPLES loaded from config/formats.js
+// Sample variables (SAMPLE_MT103, SAMPLE_PACS008, etc.) are globals loaded via <script> tags.
+// Variable name is derived from format key: 'pacs.008' → 'SAMPLE_PACS008'.
 
 function loadSample(format) {
-  var text = INLINE_SAMPLES[format];
+  var varName = 'SAMPLE_' + format.replace(/[\.\-\s]/g, '').toUpperCase();
+  var text = window[varName];
   if (!text) {
     showToast('No sample available for ' + format, true);
     return;

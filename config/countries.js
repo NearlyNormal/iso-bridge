@@ -2,7 +2,7 @@ var COUNTRIES = {
   US: {
     name: 'United States',
     flag: '🇺🇸',
-    formats: ['MT103', 'MT202', 'MT940', 'pacs.008', 'pacs.009', 'pain.001', 'camt.053'],
+    formats: ['MT103', 'MT103RET', 'MT101', 'MT104', 'MT202', 'MT900', 'MT910', 'MT940', 'MT942', 'pacs.004', 'pacs.008', 'pacs.009', 'pain.001', 'pain.008', 'camt.052', 'camt.053', 'camt.054'],
     rails: ['SWIFT', 'Fedwire', 'CHIPS', 'ACH', 'RTP', 'FedNow'],
     railTags: { 'RTP': 'iso-native', 'FedNow': 'iso-native', 'Fedwire': 'migrating' },
     notes: 'Fedwire migrating to ISO 20022. RTP and FedNow native ISO 20022. CHIPS migration completed March 2025.'
@@ -10,7 +10,7 @@ var COUNTRIES = {
   CA: {
     name: 'Canada',
     flag: '🇨🇦',
-    formats: ['MT103', 'MT940', 'pacs.008', 'pain.001', 'camt.053'],
+    formats: ['MT103', 'MT103RET', 'MT101', 'MT104', 'MT202', 'MT900', 'MT910', 'MT940', 'MT942', 'pacs.004', 'pacs.008', 'pacs.009', 'pain.001', 'pain.008', 'camt.052', 'camt.053', 'camt.054'],
     rails: ['SWIFT', 'Lynx', 'ACSS', 'RTR'],
     railTags: { 'Lynx': 'iso-native', 'RTR': 'planned' },
     notes: 'Lynx (large-value) native ISO 20022 since 2021. RTR (real-time rail) in development. Big 5 banks ISO-compliant.'
@@ -45,7 +45,7 @@ var COUNTRIES = {
   MX: {
     name: 'Mexico',
     flag: '🇲🇽',
-    formats: ['MT103', 'MT202', 'MT940', 'pacs.008', 'pacs.009', 'pain.001', 'camt.053'],
+    formats: ['MT103', 'MT103RET', 'MT101', 'MT104', 'MT202', 'MT900', 'MT910', 'MT940', 'MT942', 'pacs.004', 'pacs.008', 'pacs.009', 'pain.001', 'pain.008', 'camt.052', 'camt.053', 'camt.054'],
     rails: ['SWIFT', 'SPEI', 'CoDi'],
     railTags: { 'SPEI': 'proprietary', 'CoDi': 'proprietary' },
     notes: 'SPEI domestic payments use proprietary XML (not ISO 20022). Cross-border via SWIFT, MT and ISO 20022 coexist.'

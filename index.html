@@ -16,7 +16,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/xml.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/json.min.js"></script>
-  <link rel="stylesheet" href="assets/style.css">
+  <link rel="stylesheet" href="assets/style.css?v=2">
 </head>
 <body>
 
@@ -213,12 +213,13 @@
         <p><strong>Config-driven architecture.</strong> All country data, translation paths, and field-by-field mappings live in plain JavaScript configuration files. Adding a new country or a new format pair means editing a config file, never touching the engine. The configs are human-readable documentation in their own right.</p>
 
         <div class="glossary-coverage">
-          <p><strong>v1.0 coverage:</strong> MT103 ↔ pacs.008, MT202 ↔ pacs.009, MT940 ↔ camt.053 translation across US, Canada, and Brazil.</p>
+          <p><strong>Coverage:</strong> 9 bidirectional translation paths — MT103 ↔ pacs.008, MT101 ↔ pain.001, MT103 RETURN ↔ pacs.004, MT104 ↔ pain.008, MT202 ↔ pacs.009, MT900 ↔ camt.054, MT910 ↔ camt.054, MT940 ↔ camt.053, MT942 ↔ camt.052 — across US, Canada, Mexico, and Brazil.</p>
         </div>
 
         <hr class="uk-margin-medium-top">
         <div class="uk-padding-small uk-padding-remove-horizontal">
           <p class="toolkit-heading"><strong>The Payments Toolkit</strong></p>
+
           <div class="uk-padding-small"></div>
           <div class="uk-grid uk-grid-medium uk-margin-top" uk-grid>
             <div class="uk-width-auto"><span class="uk-badge">1</span></div>
@@ -244,21 +245,47 @@
   </div>
 
   <!-- SCRIPTS: samples first, then config, then engine -->
+  <!-- Samples -->
   <script src="samples/mt103.js"></script>
-  <script src="samples/pacs008.js"></script>
+  <script src="samples/mt103-return.js"></script>
+  <script src="samples/mt101.js"></script>
+  <script src="samples/mt104.js"></script>
   <script src="samples/mt202.js"></script>
-  <script src="samples/pacs009.js"></script>
+  <script src="samples/mt900.js"></script>
+  <script src="samples/mt910.js"></script>
   <script src="samples/mt940.js"></script>
+  <script src="samples/mt942.js"></script>
+  <script src="samples/pacs004.js"></script>
+  <script src="samples/pacs008.js"></script>
+  <script src="samples/pacs009.js"></script>
+  <script src="samples/pain001.js"></script>
+  <script src="samples/pain008.js"></script>
+  <script src="samples/camt052.js"></script>
   <script src="samples/camt053.js"></script>
+  <script src="samples/camt054.js"></script>
+  <!-- Config -->
   <script src="config/countries.js"></script>
   <script src="config/translations.js"></script>
   <script src="config/mappings/mt103-pacs008.js"></script>
   <script src="config/mappings/pacs008-mt103.js"></script>
+  <script src="config/mappings/mt103return-pacs004.js"></script>
+  <script src="config/mappings/pacs004-mt103return.js"></script>
+  <script src="config/mappings/mt101-pain001.js"></script>
+  <script src="config/mappings/pain001-mt101.js"></script>
+  <script src="config/mappings/mt104-pain008.js"></script>
+  <script src="config/mappings/pain008-mt104.js"></script>
   <script src="config/mappings/mt202-pacs009.js"></script>
   <script src="config/mappings/pacs009-mt202.js"></script>
+  <script src="config/mappings/mt900-camt054.js"></script>
+  <script src="config/mappings/camt054-mt900.js"></script>
+  <script src="config/mappings/mt910-camt054.js"></script>
+  <script src="config/mappings/camt054-mt910.js"></script>
   <script src="config/mappings/mt940-camt053.js"></script>
   <script src="config/mappings/camt053-mt940.js"></script>
+  <script src="config/mappings/mt942-camt052.js"></script>
+  <script src="config/mappings/camt052-mt942.js"></script>
   <script src="config/formats.js"></script>
+  <!-- Engine -->
   <script src="assets/mt-parser.js"></script>
   <script src="assets/app.js"></script>
 </body>

@@ -1,16 +1,27 @@
 // ─── FORMAT METADATA ───
-// Display names, dropdown categories, and sample references for the UI.
-// Samples live in samples/*.js as readable template literals.
-// Adding a new format pair? Add entries here — no changes to app.js needed.
+// Display names and dropdown categories for the UI.
+// Samples live in samples/*.js as globals (SAMPLE_MT103, SAMPLE_PACS008, etc.)
+// and are discovered automatically by loadSample() — no registry needed.
+// Adding a new format pair? Add labels and categories here — no changes to app.js needed.
 
 var FORMAT_LABELS = {
   'MT103': 'MT103 — Single Customer Credit Transfer',
+  'MT103RET': 'MT103 RETURN — Payment Return',
+  'MT101': 'MT101 — Request for Transfer',
+  'MT104': 'MT104 — Direct Debit Request',
   'MT202': 'MT202 — Financial Institution Transfer',
+  'MT900': 'MT900 — Confirmation of Debit',
+  'MT910': 'MT910 — Confirmation of Credit',
   'MT940': 'MT940 — Customer Statement',
+  'MT942': 'MT942 — Interim Transaction Report',
+  'pacs.004': 'pacs.004 — Payment Return',
   'pacs.008': 'pacs.008 — FI to FI Customer Credit Transfer',
   'pacs.009': 'pacs.009 — FI to FI Financial Institution Credit Transfer',
   'pain.001': 'pain.001 — Customer Credit Transfer Initiation',
-  'camt.053': 'camt.053 — Bank to Customer Statement'
+  'pain.008': 'pain.008 — Customer Direct Debit Initiation',
+  'camt.052': 'camt.052 — Bank to Customer Account Report (Intraday)',
+  'camt.053': 'camt.053 — Bank to Customer Statement',
+  'camt.054': 'camt.054 — Bank to Customer Debit Credit Notification'
 };
 
 var FORMAT_CATEGORIES = [
@@ -18,7 +29,14 @@ var FORMAT_CATEGORIES = [
     name: 'Customer Payments',
     rows: [
       { desc: 'Customer Credit Transfer', legacy: 'MT103', modern: 'pacs.008' },
-      { desc: 'Payment Initiation', legacy: 'MT101', modern: 'pain.001' }
+      { desc: 'Payment Initiation', legacy: 'MT101', modern: 'pain.001' },
+      { desc: 'Payment Return', legacy: 'MT103RET', modern: 'pacs.004' }
+    ]
+  },
+  {
+    name: 'Direct Debit',
+    rows: [
+      { desc: 'Direct Debit Initiation', legacy: 'MT104', modern: 'pain.008' }
     ]
   },
   {
@@ -29,6 +47,13 @@ var FORMAT_CATEGORIES = [
     ]
   },
   {
+    name: 'Notifications',
+    rows: [
+      { desc: 'Debit Notification', legacy: 'MT900', modern: 'camt.054' },
+      { desc: 'Credit Notification', legacy: 'MT910', modern: 'camt.054' }
+    ]
+  },
+  {
     name: 'Reporting',
     rows: [
       { desc: 'Account Statement', legacy: 'MT940', modern: 'camt.053' },
@@ -36,12 +61,3 @@ var FORMAT_CATEGORIES = [
     ]
   }
 ];
-
-var INLINE_SAMPLES = {
-  'MT103': SAMPLE_MT103,
-  'pacs.008': SAMPLE_PACS008,
-  'MT202': SAMPLE_MT202,
-  'pacs.009': SAMPLE_PACS009,
-  'MT940': SAMPLE_MT940,
-  'camt.053': SAMPLE_CAMT053
-};
