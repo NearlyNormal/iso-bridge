@@ -149,7 +149,7 @@ body {
 
 /* ─── DIVIDER ─── */
 .panel-divider {
-  background: #DEDBD1;
+  background: #D5E8F1;
 }
 
 /* ─── LEFT PANEL ─── */
@@ -1313,7 +1313,7 @@ body {
 
 /* ─── FORMAT BAR ─── */
 .format-bar {
-  background: #DEDBD1;
+  background: #D5E8F1;
   border-bottom: none;
   padding: 12px 20px;
 }
