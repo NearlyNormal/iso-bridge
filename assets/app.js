@@ -438,6 +438,51 @@ function buildFormatGrid(containerId, availableFormats, onSelect, role, currentV
   }
 }
 
+function showCountryNote(country) {
+  var el = document.getElementById('country-note-banner');
+  if (el && country.notes) {
+    var span = document.getElementById('country-note-text');
+    span.textContent = country.notes;
+    span.title = country.notes;
+    el.style.display = '';
+  }
+}
+
+function hideCountryNote() {
+  var el = document.getElementById('country-note-banner');
+  if (el) el.style.display = 'none';
+}
+
+function showRailsStrip(country) {
+  var el = document.getElementById('rails-strip');
+  if (!el) return;
+
+  var tagLabels = { 'iso-native': 'ISO', 'proprietary': 'proprietary', 'migrating': 'migrating', 'planned': 'planned' };
+  var html = '<span class="rail-label">Rails</span>';
+  var tags = country.railTags || {};
+
+  for (var i = 0; i < country.rails.length; i++) {
+    var rail = country.rails[i];
+    var tag = tags[rail] || '';
+    var cls = 'rail-badge';
+    if (tag) cls += ' rail-' + tag.replace(/\s+/g, '-');
+
+    html += '<span class="' + cls + '">' + rail;
+    if (tag && tagLabels[tag]) {
+      html += ' <span class="rail-tag">' + tagLabels[tag] + '</span>';
+    }
+    html += '</span>';
+  }
+
+  el.innerHTML = html;
+  el.style.display = '';
+}
+
+function hideRailsStrip() {
+  var el = document.getElementById('rails-strip');
+  if (el) { el.innerHTML = ''; el.style.display = 'none'; }
+}
+
 function onCountryChange() {
   var code = document.getElementById('country-select').value;
   var fromInput = document.getElementById('from-select');
@@ -455,7 +500,9 @@ function onCountryChange() {
   document.getElementById('from-grid').innerHTML = '';
   document.getElementById('to-grid').innerHTML = '';
   hideWarning();
-  hideNativeISOBanner();
+  enableFormatBar();
+  hideCountryNote();
+  hideRailsStrip();
 
   if (!code) {
     fromBtn.disabled = true;
@@ -479,14 +526,15 @@ function onCountryChange() {
     }
   }
 
+  var country = COUNTRIES[code];
+  showCountryNote(country);
+  showRailsStrip(country);
+
   if (availableFrom.length === 0) {
     fromBtn.disabled = true;
-    var c = COUNTRIES[code];
-    showNativeISOBanner(c.name);
+    disableFormatBar();
     return;
   }
-
-  hideNativeISOBanner();
 
   buildFormatGrid('from-grid', availableFrom, function(fmt) {
     fromInput.value = fmt;
@@ -579,18 +627,11 @@ function hideWarning() {
   document.getElementById('translation-warning').style.display = 'none';
 }
 
-function showNativeISOBanner(countryName) {
-  var el = document.getElementById('native-iso-banner');
-  if (el) {
-    document.getElementById('native-iso-text').textContent = countryName + ' is already ISO 20022-native';
-    el.style.display = '';
-  }
+function disableFormatBar() {
   document.querySelector('.format-bar').classList.add('format-bar-disabled');
 }
 
-function hideNativeISOBanner() {
-  var el = document.getElementById('native-iso-banner');
-  if (el) el.style.display = 'none';
+function enableFormatBar() {
   document.querySelector('.format-bar').classList.remove('format-bar-disabled');
 }
 

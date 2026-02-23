@@ -81,10 +81,13 @@ You paste a source message on the left. You get the translated output on the rig
 | United States | SWIFT, Fedwire, CHIPS, ACH, RTP, FedNow | MT103, MT202, MT940, pacs.008, pacs.009, pain.001, camt.053 | Active |
 | Canada | SWIFT, Lynx, ACSS, RTR | MT103, MT940, pacs.008, pain.001, camt.053 | Active |
 | Brazil | SWIFT, PIX, SITRAF, SPB | pacs.008, pain.001, camt.053 | Active (ISO-native) |
+| Mexico | SWIFT, SPEI, CoDi | MT103, MT202, MT940, pacs.008, pacs.009, pain.001, camt.053 | Active |
 
 Brazil is fully ISO 20022-native. Its domestic rails (PIX, SITRAF) were built on ISO 20022 from the start, so there is no legacy format translation needed. The tool reflects this: selecting Brazil disables the format selectors and displays an informational banner.
 
-Six additional countries (UK, EU, Mexico, Singapore, Australia, India) are defined in the country registry and visible in the UI as planned.
+Mexico's domestic rail (SPEI) uses proprietary XML, not ISO 20022. Cross-border payments flow through SWIFT, where both MT and ISO 20022 formats coexist. All six translation paths are active for Mexico.
+
+Five additional countries (UK, EU, Singapore, Australia, India) are defined in the country registry and visible in the UI as planned.
 
 ---
 
@@ -275,7 +278,7 @@ Each tool addresses a different question. The parser asks "what does this messag
 
 ### v1.1
 
-- UK, EU, Mexico, Singapore, Australia, India country activation
+- UK, EU, Singapore, Australia, India country activation
 - MT950 / camt.052 (interim statements)
 - Field mapping reference tab (standalone browsable reference)
 - Message builder (generate ISO XML from form inputs)

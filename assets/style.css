@@ -149,7 +149,7 @@ body {
 
 /* ─── DIVIDER ─── */
 .panel-divider {
-  background: #B5EAFF;
+  background: #DEDBD1;
 }
 
 /* ─── LEFT PANEL ─── */
@@ -1211,9 +1211,93 @@ body {
   margin-left: 6px;
 }
 
+/* ─── COUNTRY NOTE ─── */
+.country-note {
+  margin-left: 16px;
+  gap: 10px;
+  max-width: 540px;
+  padding-right: 3rem;
+}
+
+.country-note-icon {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  opacity: 0.55;
+}
+
+.country-note-text {
+  font-size: var(--size-xs);
+  color: var(--accent-dark);
+}
+
+/* ─── RAILS STRIP ─── */
+.rails-strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0 0;
+  flex-wrap: wrap;
+}
+
+.rails-strip .rail-label {
+  font-size: var(--size-sm);
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-right: 4px;
+}
+
+.rail-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--size-sm);
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  padding: 3px 9px;
+  border-radius: 3px;
+  background: var(--bg-white);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+
+.rail-badge.rail-iso-native {
+  background: var(--success-bg);
+  border-color: rgba(25, 135, 84, 0.2);
+  color: var(--success);
+}
+
+.rail-badge.rail-proprietary {
+  background: var(--warning-bg);
+  border-color: rgba(255, 193, 7, 0.25);
+  color: var(--warning-dark);
+}
+
+.rail-badge.rail-migrating {
+  background: var(--accent-bg);
+  border-color: rgba(58, 173, 196, 0.2);
+  color: var(--accent-dark);
+}
+
+.rail-badge.rail-planned {
+  background: var(--bg-input);
+  border-color: var(--border);
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.rail-tag {
+  font-size: var(--size-xs);
+  font-weight: 400;
+  opacity: 0.8;
+  text-transform: lowercase;
+}
+
 /* ─── FORMAT BAR ─── */
 .format-bar {
-  background: #B5EAFF;
+  background: #DEDBD1;
   border-bottom: none;
   padding: 12px 20px;
 }

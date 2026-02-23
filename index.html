@@ -38,12 +38,9 @@
         </div>
       </div>
       <input type="hidden" id="country-select" value="">
-      <div id="native-iso-banner" class="uk-flex uk-flex-middle" style="display:none; margin-left:16px; gap:10px">
-        <img src="assets/validate.svg" alt="" style="width:28px; height:28px">
-        <div>
-          <div id="native-iso-text" style="font-family:var(--font-mono); font-size:var(--size-code); color:var(--accent-dark)"></div>
-          <div style="font-family:var(--font-mono); font-size:var(--size-code); color:var(--accent-dark)">No translation needed</div>
-        </div>
+      <div id="country-note-banner" class="uk-flex uk-flex-middle uk-width-expand country-note" style="display:none">
+        <img src="assets/info.svg" alt="" class="country-note-icon">
+        <span id="country-note-text" class="country-note-text"></span>
       </div>
     </div>
     <div class="uk-navbar-right uk-margin-right">
@@ -78,6 +75,7 @@
         </div>
       </div>
     </div>
+    <div id="rails-strip" class="rails-strip" style="display:none"></div>
     <div id="translation-warning" class="translation-warning" style="display:none">
       <span class="warning-text"></span>
     </div>
