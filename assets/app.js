@@ -6,6 +6,236 @@ var hljsAvailable = (typeof hljs !== 'undefined');
 var currentOutput = null;   // { xml, json, warnings, fieldMap, dataGaps, dataLoss }
 var currentView = 'xml';    // 'xml' or 'json'
 
+// ─── TRANSFORM REGISTRY ───
+var TRANSFORMS = {
+  direct: function(val) { return val; },
+  drop: function() { return null; },
+  joinLines: function(val) { return (val || '').replace(/\n/g, ' '); },
+
+  decode32A: function(val, field, parsed) {
+    var ext = parsed.extracted;
+    return {
+      amount: ext.amount ? ext.amount.toFixed(2) : '0.00',
+      currency: ext.currency || 'USD',
+      date: ext.valueDate || new Date().toISOString().substring(0, 10),
+      _display: (ext.amount ? ext.amount.toFixed(2) : '0.00') + ' ' + (ext.currency || 'USD') + ' (' + (ext.valueDate || '') + ')'
+    };
+  },
+
+  decode33B: function(val, field, parsed) {
+    var ext = parsed.extracted;
+    if (!ext.instructedAmount) return null;
+    return {
+      amount: ext.instructedAmount.toFixed(2),
+      currency: ext.instructedCurrency || ext.currency || 'USD',
+      _display: ext.instructedAmount.toFixed(2) + ' ' + (ext.instructedCurrency || ext.currency || 'USD')
+    };
+  },
+
+  chargeBearer: function(val, field, parsed, mapping) {
+    var ext = parsed.extracted;
+    var mtCharge = ext.chargeBearer || 'SHA';
+    var map = (mapping.valueMaps && mapping.valueMaps.chargeBearer) || {};
+    return map[mtCharge] || 'SHAR';
+  },
+
+  correspondentToSettlement: function(val) {
+    return val ? 'COVE' : 'CLRG';
+  },
+
+  partyToDebtor: function(val, field, parsed) {
+    var debtor = parsed.extracted.orderingCustomer;
+    if (!debtor) return { name: '', account: '', address: [] };
+    if (typeof debtor === 'string') return { name: debtor, account: '', address: [] };
+    return { name: debtor.name || '', account: debtor.account || '', address: debtor.address || [] };
+  },
+
+  partyBICToDebtor: function(val, field, parsed) {
+    return TRANSFORMS.partyToDebtor(val, field, parsed);
+  },
+
+  partyToCreditor: function(val, field, parsed) {
+    var creditor = parsed.extracted.beneficiary;
+    if (!creditor) return { name: '', account: '', address: [] };
+    if (typeof creditor === 'string') return { name: creditor, account: '', address: [] };
+    return { name: creditor.name || '', account: creditor.account || '', address: creditor.address || [] };
+  },
+
+  // MT202 BIC extractions
+  bicDirect: function(val, field, parsed) {
+    var f = parsed.fields[field.mtTag];
+    if (!f) return '';
+    return (f.decoded && typeof f.decoded === 'string') ? f.decoded : f.rawValue.trim();
+  },
+
+  // ISO → MT transforms
+  truncate16: function(val) {
+    return (val || '').substring(0, 16);
+  },
+
+  buildTag32A: function(val, field, txInf) {
+    var amountEl = getXmlEl(txInf, 'IntrBkSttlmAmt');
+    var amount = amountEl ? amountEl.textContent : '0';
+    var currency = amountEl ? (amountEl.getAttribute('Ccy') || 'USD') : 'USD';
+    var settleDate = getXmlText(txInf, 'IntrBkSttlmDt') || new Date().toISOString().substring(0, 10);
+    var dateParts = settleDate.split('-');
+    var dateStr = dateParts[0].substring(2) + dateParts[1] + dateParts[2];
+    var amtStr = parseFloat(amount).toFixed(2).replace('.', ',');
+    return {
+      tag: dateStr + currency + amtStr,
+      amount: amount,
+      currency: currency,
+      settleDate: settleDate,
+      _display: dateStr + currency + amtStr
+    };
+  },
+
+  buildTag33B: function(val, field, txInf) {
+    var instdAmtEl = getXmlEl(txInf, 'InstdAmt');
+    if (!instdAmtEl) return null;
+    var instdAmt = instdAmtEl.textContent;
+    var instdCcy = instdAmtEl.getAttribute('Ccy') || 'USD';
+    return {
+      tag: instdCcy + parseFloat(instdAmt).toFixed(2).replace('.', ','),
+      _display: instdCcy + parseFloat(instdAmt).toFixed(2).replace('.', ',')
+    };
+  },
+
+  debtorToParty: function(val, field, txInf) {
+    var dbtr = getXmlEl(txInf, 'Dbtr');
+    var debtorName = dbtr ? getXmlText(dbtr, 'Nm') : '';
+    var dbtrAcct = getXmlPathText(txInf, 'DbtrAcct/Id/IBAN') || getXmlPathText(txInf, 'DbtrAcct/Id/Othr/Id');
+    var dbtrAddr = _extractAddress(dbtr);
+    var tag = '';
+    if (dbtrAcct) tag += '/' + dbtrAcct + '\n';
+    if (debtorName) tag += debtorName + '\n';
+    for (var i = 0; i < dbtrAddr.length && i < 3; i++) {
+      tag += dbtrAddr[i].substring(0, 35) + '\n';
+    }
+    tag = tag.replace(/\n$/, '');
+    return { tag: tag, name: debtorName, account: dbtrAcct, address: dbtrAddr, _display: tag.split('\n')[0] || '' };
+  },
+
+  creditorToParty: function(val, field, txInf) {
+    var cdtr = getXmlEl(txInf, 'Cdtr');
+    var creditorName = cdtr ? getXmlText(cdtr, 'Nm') : '';
+    var cdtrAcct = getXmlPathText(txInf, 'CdtrAcct/Id/IBAN') || getXmlPathText(txInf, 'CdtrAcct/Id/Othr/Id');
+    var cdtrAddr = _extractAddress(cdtr);
+    var tag = '';
+    if (cdtrAcct) tag += '/' + cdtrAcct + '\n';
+    if (creditorName) tag += creditorName + '\n';
+    for (var i = 0; i < cdtrAddr.length && i < 3; i++) {
+      tag += cdtrAddr[i].substring(0, 35) + '\n';
+    }
+    tag = tag.replace(/\n$/, '');
+    return { tag: tag, name: creditorName, account: cdtrAcct, address: cdtrAddr, _display: tag.split('\n')[0] || '' };
+  },
+
+  chargeBearerReverse: function(val, field, txInf, mapping) {
+    var chrgBr = getXmlText(txInf, 'ChrgBr') || 'SHAR';
+    var map = (mapping.valueMaps && mapping.valueMaps.chargeBearerReverse) || {};
+    return { tag: map[chrgBr] || 'SHA', isoValue: chrgBr, _display: (map[chrgBr] || 'SHA') + ' (from ' + chrgBr + ')' };
+  },
+
+  splitLines35: function(val) {
+    if (!val) return null;
+    var text = val.substring(0, 140);
+    var lines = '';
+    for (var i = 0; i < text.length; i += 35) {
+      if (lines) lines += '\n';
+      lines += text.substring(i, i + 35);
+    }
+    return lines;
+  },
+
+  splitLines35x6: function(val) {
+    if (!val) return null;
+    var text = val.substring(0, 210);
+    var lines = '';
+    for (var i = 0; i < text.length; i += 35) {
+      if (lines) lines += '\n';
+      lines += text.substring(i, i + 35);
+    }
+    return lines;
+  },
+
+  splitLines65: function(val) {
+    if (!val) return null;
+    var text = val.substring(0, 390);
+    var lines = '';
+    for (var i = 0; i < text.length; i += 65) {
+      if (lines) lines += '\n';
+      lines += text.substring(i, i + 65);
+    }
+    return lines;
+  },
+
+  // Statement-specific transforms
+  accountId: function(val, field, parsed) {
+    return parsed.extracted.accountIdentification || '';
+  },
+
+  statementNumber: function(val, field, parsed) {
+    var sn = parsed.extracted.statementNumber || {};
+    return { statementNumber: sn.statementNumber || '1', sequenceNumber: sn.sequenceNumber || '1' };
+  },
+
+  balance: function(val, field, parsed) {
+    var tag = field.mtTag;
+    var f = parsed.fields[tag];
+    if (!f) return null;
+    if (Array.isArray(f)) {
+      var results = [];
+      for (var i = 0; i < f.length; i++) results.push(f[i].decoded);
+      return results;
+    }
+    return f.decoded;
+  },
+
+  statementLine: function(val, field, parsed) {
+    return parsed.extracted.statementLine || [];
+  },
+
+  // ISO → MT statement transforms
+  accountIdReverse: function(val) { return val; },
+
+  buildStatementNumber: function(val, field, txInf) {
+    var elctrncSeqNb = getXmlText(txInf, 'ElctrncSeqNb') || '1';
+    var lglSeqNb = getXmlText(txInf, 'LglSeqNb') || '1';
+    return { tag: elctrncSeqNb + '/' + lglSeqNb, elctrncSeqNb: elctrncSeqNb, lglSeqNb: lglSeqNb };
+  },
+
+  balanceReverse: function() { return null; },
+  entryToStatementLine: function() { return null; }
+};
+
+// Helper for address extraction from XML party nodes
+function _extractAddress(partyEl) {
+  var addr = [];
+  if (!partyEl) return addr;
+  var pstlAdr = getXmlEl(partyEl, 'PstlAdr');
+  if (!pstlAdr) return addr;
+  var children = pstlAdr.childNodes;
+  for (var i = 0; i < children.length; i++) {
+    if (children[i].nodeType === 1 && (children[i].localName === 'AdrLine' || children[i].nodeName === 'AdrLine')) {
+      addr.push(children[i].textContent);
+    }
+  }
+  if (addr.length === 0) {
+    var strtNm = getXmlText(pstlAdr, 'StrtNm');
+    var twnNm = getXmlText(pstlAdr, 'TwnNm');
+    var pstCd = getXmlText(pstlAdr, 'PstCd');
+    var ctry = getXmlText(pstlAdr, 'Ctry');
+    if (strtNm) addr.push(strtNm);
+    var cityLine = '';
+    if (twnNm) cityLine += twnNm;
+    if (pstCd) cityLine += ' ' + pstCd;
+    if (ctry) cityLine += ' ' + ctry;
+    if (cityLine) addr.push(cityLine.trim());
+  }
+  return addr;
+}
+
 // ─── CONFIG READERS ───
 function getFormatsForCountry(code) {
   var c = COUNTRIES[code];
@@ -32,14 +262,7 @@ function getTranslationPath(from, to) {
 }
 
 function getMapping(ref) {
-  // Resolve global variable by name
-  if (ref === 'MAPPING_MT103_PACS008') return MAPPING_MT103_PACS008;
-  if (ref === 'MAPPING_PACS008_MT103') return MAPPING_PACS008_MT103;
-  if (ref === 'MAPPING_MT202_PACS009') return MAPPING_MT202_PACS009;
-  if (ref === 'MAPPING_PACS009_MT202') return MAPPING_PACS009_MT202;
-  if (ref === 'MAPPING_MT940_CAMT053') return MAPPING_MT940_CAMT053;
-  if (ref === 'MAPPING_CAMT053_MT940') return MAPPING_CAMT053_MT940;
-  return null;
+  return window[ref] || null;
 }
 
 // ─── FORMAT METADATA ───
@@ -452,8 +675,9 @@ function getXmlPathText(root, path) {
   return node ? (node.textContent || '') : '';
 }
 
-// ─── MT103 → pacs.008 CONVERSION ───
-function convertMTtoISO(rawText) {
+
+// ─── GENERIC MT → ISO CONVERSION ENGINE ───
+function convertMTtoISO(rawText, mapping) {
   var parsed = parseMT(rawText);
   if (!parsed.valid && parsed.errors.length > 0) {
     return { error: true, message: 'MT parse errors:\n' + parsed.errors.map(function(e) { return '• ' + e.message; }).join('\n') };
@@ -461,107 +685,62 @@ function convertMTtoISO(rawText) {
 
   var ext = parsed.extracted;
   var fields = parsed.fields;
-  var mapping = MAPPING_MT103_PACS008;
   var warnings = [];
   var fieldMap = [];
 
-  // Helper: get field value
-  function getField(tag) {
-    if (fields[tag]) return fields[tag];
-    return null;
-  }
-
-  function getRawValue(tag) {
-    var f = getField(tag);
-    return f ? f.rawValue : '';
-  }
-
-  // Build values
-  var endToEndId = (ext.transactionReference || 'NOTPROVIDED').substring(0, 35);
-  var instrId = 'INSTR-' + new Date().toISOString().substring(0, 10).replace(/-/g, '') + '-' + Math.random().toString(36).substring(2, 6).toUpperCase();
+  // Generate common IDs
   var msgId = 'BRIDGE-' + new Date().toISOString().substring(0, 10).replace(/-/g, '') + '-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+  var instrId = 'INSTR-' + new Date().toISOString().substring(0, 10).replace(/-/g, '') + '-' + Math.random().toString(36).substring(2, 6).toUpperCase();
   var creDtTm = new Date().toISOString().substring(0, 19);
   var sttlmMtd = fields['53A'] ? 'COVE' : 'CLRG';
 
-  // Amount and currency from :32A:
+  // Amount/currency from :32A:
   var amount = ext.amount ? ext.amount.toFixed(2) : '0.00';
   var currency = ext.currency || 'USD';
   var valueDate = ext.valueDate || new Date().toISOString().substring(0, 10);
 
-  // Instructed amount from :33B:
-  var instdAmt = ext.instructedAmount;
-  var instdCcy = ext.instructedCurrency;
-
-  // Charge bearer
-  var chargeMap = mapping.valueMaps.chargeBearer;
-  var mtCharge = ext.chargeBearer || 'SHA';
-  var isoCharge = chargeMap[mtCharge] || 'SHAR';
-
-  // Party: Ordering Customer → Debtor
-  var debtor = ext.orderingCustomer;
-  var debtorName = '', debtorAccount = '', debtorAddr = [];
-  if (debtor) {
-    if (typeof debtor === 'string') {
-      debtorName = debtor;
-    } else {
-      debtorName = debtor.name || '';
-      debtorAccount = debtor.account || '';
-      debtorAddr = debtor.address || [];
-    }
+  // Resolve fixed element placeholders
+  function resolveFixed(val) {
+    if (val === '$MSGID') return msgId;
+    if (val === '$NOW') return creDtTm;
+    if (val === '$STTLM') return sttlmMtd;
+    return val;
   }
 
-  // Ordering Institution → Debtor Agent
-  var debtorAgent = '';
-  if (fields['52A']) {
-    debtorAgent = (fields['52A'].decoded && typeof fields['52A'].decoded === 'string') ? fields['52A'].decoded : fields['52A'].rawValue.trim();
+  // --- Statement-type handling (MT940 → camt.053) ---
+  if (mapping.isStatement) {
+    return _convertMT940toISO(parsed, mapping, msgId, creDtTm);
   }
 
-  // Account With Institution → Creditor Agent
-  var creditorAgent = '';
-  if (fields['57A']) {
-    creditorAgent = (fields['57A'].decoded && typeof fields['57A'].decoded === 'string') ? fields['57A'].decoded : fields['57A'].rawValue.trim();
+  // --- Payment-type handling (MT103 → pacs.008, MT202 → pacs.009) ---
+
+  // Run transforms on each field to collect values
+  var transformedValues = {};
+  var mapFields = mapping.fields;
+  for (var i = 0; i < mapFields.length; i++) {
+    var mf = mapFields[i];
+    var srcField = fields[mf.mtTag];
+    var rawVal = srcField ? srcField.rawValue : '';
+    var transformFn = TRANSFORMS[mf.transform] || TRANSFORMS.direct;
+    var result = transformFn(rawVal, mf, parsed, mapping);
+    transformedValues[mf.mtTag] = { raw: rawVal, transformed: result, field: mf, srcField: srcField };
   }
 
-  // Intermediary
-  var intermediary = '';
-  if (fields['56A']) {
-    intermediary = (fields['56A'].decoded && typeof fields['56A'].decoded === 'string') ? fields['56A'].decoded : fields['56A'].rawValue.trim();
+  // Determine endToEndId based on message type
+  var endToEndId;
+  if (mapping.sourceType === 'MT202') {
+    var relRef = ext.relatedReference || ext.transactionReference || 'NOTPROVIDED';
+    endToEndId = relRef.substring(0, 35);
+  } else {
+    endToEndId = (ext.transactionReference || 'NOTPROVIDED').substring(0, 35);
   }
 
-  // Beneficiary → Creditor
-  var creditor = ext.beneficiary;
-  var creditorName = '', creditorAccount = '', creditorAddr = [];
-  if (creditor) {
-    if (typeof creditor === 'string') {
-      creditorName = creditor;
-    } else {
-      creditorName = creditor.name || '';
-      creditorAccount = creditor.account || '';
-      creditorAddr = creditor.address || [];
-    }
-  }
-
-  // Remittance
-  var remittance = ext.remittanceInformation || '';
-  if (typeof remittance !== 'string') remittance = '';
-  remittance = remittance.replace(/\n/g, ' ');
-
-  // Sender to Receiver Info
-  var instrForAgent = ext.senderToReceiverInfo || '';
-  if (typeof instrForAgent !== 'string') instrForAgent = '';
-  instrForAgent = instrForAgent.replace(/\n/g, ' ');
-
-  // Regulatory reporting
-  var regRptg = ext.regulatoryReporting || '';
-  if (typeof regRptg !== 'string') regRptg = '';
-  regRptg = regRptg.replace(/\n/g, ' ');
-
-  // Build XML
+  // Build XML string
   var xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
   xml += '<Document xmlns="' + mapping.isoNamespace + '">\n';
   xml += '  <' + mapping.rootElement + '>\n';
 
-  // GrpHdr
+  // Group header
   xml += '    <GrpHdr>\n';
   xml += '      <MsgId>' + escXml(msgId) + '</MsgId>\n';
   xml += '      <CreDtTm>' + creDtTm + '</CreDtTm>\n';
@@ -569,8 +748,9 @@ function convertMTtoISO(rawText) {
   xml += '      <SttlmInf><SttlmMtd>' + sttlmMtd + '</SttlmMtd></SttlmInf>\n';
   xml += '    </GrpHdr>\n';
 
-  // CdtTrfTxInf
-  xml += '    <CdtTrfTxInf>\n';
+  // Transaction element
+  var txEl = mapping.txElement;
+  xml += '    <' + txEl + '>\n';
 
   // PmtId
   xml += '      <PmtId>\n';
@@ -578,130 +758,126 @@ function convertMTtoISO(rawText) {
   xml += '        <EndToEndId>' + escXml(endToEndId) + '</EndToEndId>\n';
   xml += '      </PmtId>\n';
 
-  // Amounts
+  // Amount
   xml += '      <IntrBkSttlmAmt Ccy="' + escXml(currency) + '">' + amount + '</IntrBkSttlmAmt>\n';
   xml += '      <IntrBkSttlmDt>' + valueDate + '</IntrBkSttlmDt>\n';
 
-  if (instdAmt) {
-    xml += '      <InstdAmt Ccy="' + escXml(instdCcy || currency) + '">' + instdAmt.toFixed(2) + '</InstdAmt>\n';
+  // Instructed amount (MT103 only)
+  if (ext.instructedAmount) {
+    var instdCcy = ext.instructedCurrency || currency;
+    xml += '      <InstdAmt Ccy="' + escXml(instdCcy) + '">' + ext.instructedAmount.toFixed(2) + '</InstdAmt>\n';
   }
 
-  // Charge bearer
-  xml += '      <ChrgBr>' + isoCharge + '</ChrgBr>\n';
-
-  // Intermediary Agent
-  if (intermediary) {
-    xml += '      <IntrmyAgt1>\n';
-    xml += '        <FinInstnId><BICFI>' + escXml(intermediary) + '</BICFI></FinInstnId>\n';
-    xml += '      </IntrmyAgt1>\n';
+  // Charge bearer (MT103 only)
+  if (transformedValues['71A'] && transformedValues['71A'].transformed) {
+    xml += '      <ChrgBr>' + transformedValues['71A'].transformed + '</ChrgBr>\n';
   }
 
-  // Debtor
-  xml += '      <Dbtr>\n';
-  xml += '        <Nm>' + escXml(debtorName) + '</Nm>\n';
-  if (debtorAddr.length > 0) {
-    xml += '        <PstlAdr>\n';
-    for (var i = 0; i < debtorAddr.length; i++) {
-      xml += '          <AdrLine>' + escXml(debtorAddr[i]) + '</AdrLine>\n';
+  // Build remaining elements from field mappings
+  // Process BIC fields and party fields in order
+  var emittedPaths = {};
+  for (var i = 0; i < mapFields.length; i++) {
+    var mf = mapFields[i];
+    var tv = transformedValues[mf.mtTag];
+    if (!tv || !mf.isoPath) continue;
+    // Skip fields already handled above
+    if (mf.mtTag === '20' || mf.mtTag === '21' || mf.mtTag === '32A' || mf.mtTag === '33B' || mf.mtTag === '71A' || mf.mtTag === '23B') continue;
+    // Skip settlement method (handled in GrpHdr)
+    if (mf.isoPath.indexOf('SttlmMtd') !== -1) continue;
+
+    var val = tv.transformed;
+    if (!val && val !== 0) continue;
+
+    // Skip alternative fields that map to the same isoPath (e.g. :50A: when :50K: already emitted Dbtr)
+    if (emittedPaths[mf.isoPath]) continue;
+
+    if (mf.transform === 'partyToDebtor' || mf.transform === 'partyBICToDebtor') {
+      // Debtor party (MT103)
+      emittedPaths[mf.isoPath] = true;
+      var party = val;
+      xml += '      <Dbtr>\n';
+      xml += '        <Nm>' + escXml(party.name) + '</Nm>\n';
+      if (party.address && party.address.length > 0) {
+        xml += '        <PstlAdr>\n';
+        for (var a = 0; a < party.address.length; a++) {
+          xml += '          <AdrLine>' + escXml(party.address[a]) + '</AdrLine>\n';
+        }
+        xml += '        </PstlAdr>\n';
+      }
+      xml += '      </Dbtr>\n';
+      if (party.account) {
+        xml += '      <DbtrAcct><Id>';
+        if (party.account.match(/^[A-Z]{2}\d{2}/)) {
+          xml += '<IBAN>' + escXml(party.account) + '</IBAN>';
+        } else {
+          xml += '<Othr><Id>' + escXml(party.account) + '</Id></Othr>';
+        }
+        xml += '</Id></DbtrAcct>\n';
+      }
+    } else if (mf.transform === 'partyToCreditor') {
+      // Creditor party (MT103)
+      emittedPaths[mf.isoPath] = true;
+      var party = val;
+      xml += '      <Cdtr>\n';
+      xml += '        <Nm>' + escXml(party.name) + '</Nm>\n';
+      if (party.address && party.address.length > 0) {
+        xml += '        <PstlAdr>\n';
+        for (var a = 0; a < party.address.length; a++) {
+          xml += '          <AdrLine>' + escXml(party.address[a]) + '</AdrLine>\n';
+        }
+        xml += '        </PstlAdr>\n';
+      }
+      xml += '      </Cdtr>\n';
+      if (party.account) {
+        xml += '      <CdtrAcct><Id>';
+        if (party.account.match(/^[A-Z]{2}\d{2}/)) {
+          xml += '<IBAN>' + escXml(party.account) + '</IBAN>';
+        } else {
+          xml += '<Othr><Id>' + escXml(party.account) + '</Id></Othr>';
+        }
+        xml += '</Id></CdtrAcct>\n';
+      }
+    } else if (mf.transform === 'joinLines') {
+      // Text field with path like CdtTrfTxInf/RmtInf/Ustrd
+      var pathParts = mf.isoPath.split('/');
+      // Strip the txElement prefix if present
+      var relPath = mf.isoPath;
+      if (relPath.indexOf(txEl + '/') === 0) relPath = relPath.substring(txEl.length + 1);
+      xml += _buildNestedXml(relPath, escXml(val), '      ');
+    } else if (mf.transform === 'direct' || mf.transform === 'bicDirect') {
+      // BIC or simple value fields
+      var relPath = mf.isoPath;
+      if (relPath.indexOf(txEl + '/') === 0) relPath = relPath.substring(txEl.length + 1);
+      xml += _buildNestedXml(relPath, escXml(typeof val === 'string' ? val : ''), '      ');
     }
-    xml += '        </PstlAdr>\n';
-  }
-  xml += '      </Dbtr>\n';
-
-  // Debtor Account
-  if (debtorAccount) {
-    xml += '      <DbtrAcct><Id>';
-    if (debtorAccount.match(/^[A-Z]{2}\d{2}/)) {
-      xml += '<IBAN>' + escXml(debtorAccount) + '</IBAN>';
-    } else {
-      xml += '<Othr><Id>' + escXml(debtorAccount) + '</Id></Othr>';
-    }
-    xml += '</Id></DbtrAcct>\n';
   }
 
-  // Debtor Agent
-  if (debtorAgent) {
-    xml += '      <DbtrAgt>\n';
-    xml += '        <FinInstnId><BICFI>' + escXml(debtorAgent) + '</BICFI></FinInstnId>\n';
-    xml += '      </DbtrAgt>\n';
-  }
-
-  // Creditor Agent
-  if (creditorAgent) {
-    xml += '      <CdtrAgt>\n';
-    xml += '        <FinInstnId><BICFI>' + escXml(creditorAgent) + '</BICFI></FinInstnId>\n';
-    xml += '      </CdtrAgt>\n';
-  }
-
-  // Creditor
-  xml += '      <Cdtr>\n';
-  xml += '        <Nm>' + escXml(creditorName) + '</Nm>\n';
-  if (creditorAddr.length > 0) {
-    xml += '        <PstlAdr>\n';
-    for (var i = 0; i < creditorAddr.length; i++) {
-      xml += '          <AdrLine>' + escXml(creditorAddr[i]) + '</AdrLine>\n';
-    }
-    xml += '        </PstlAdr>\n';
-  }
-  xml += '      </Cdtr>\n';
-
-  // Creditor Account
-  if (creditorAccount) {
-    xml += '      <CdtrAcct><Id>';
-    if (creditorAccount.match(/^[A-Z]{2}\d{2}/)) {
-      xml += '<IBAN>' + escXml(creditorAccount) + '</IBAN>';
-    } else {
-      xml += '<Othr><Id>' + escXml(creditorAccount) + '</Id></Othr>';
-    }
-    xml += '</Id></CdtrAcct>\n';
-  }
-
-  // Instruction for Creditor Agent
-  if (instrForAgent) {
-    xml += '      <InstrForCdtrAgt>\n';
-    xml += '        <InstrInf>' + escXml(instrForAgent) + '</InstrInf>\n';
-    xml += '      </InstrForCdtrAgt>\n';
-  }
-
-  // Regulatory Reporting
-  if (regRptg) {
-    xml += '      <RgltryRptg>\n';
-    xml += '        <Dtls><Inf>' + escXml(regRptg) + '</Inf></Dtls>\n';
-    xml += '      </RgltryRptg>\n';
-  }
-
-  // Remittance
-  if (remittance) {
-    xml += '      <RmtInf>\n';
-    xml += '        <Ustrd>' + escXml(remittance) + '</Ustrd>\n';
-    xml += '      </RmtInf>\n';
-  }
-
-  xml += '    </CdtTrfTxInf>\n';
+  xml += '    </' + txEl + '>\n';
   xml += '  </' + mapping.rootElement + '>\n';
   xml += '</Document>';
 
   // Build field map for diagram
-  var mapFields = mapping.fields;
   for (var i = 0; i < mapFields.length; i++) {
     var mf = mapFields[i];
-    var srcField = getField(mf.mtTag);
-    var srcVal = srcField ? srcField.rawValue : '';
+    var tv = transformedValues[mf.mtTag];
+    var srcVal = tv ? tv.raw : '';
     var tgtVal = '';
 
-    // Determine target value from the generated XML
+    if (tv && tv.transformed != null) {
+      var t = tv.transformed;
+      if (typeof t === 'object' && t._display) tgtVal = t._display;
+      else if (typeof t === 'object' && t.name !== undefined) tgtVal = t.name + (t.account ? ' [' + t.account + ']' : '');
+      else if (typeof t === 'string') tgtVal = t;
+    }
+
+    // Special display overrides
     if (mf.mtTag === '20') tgtVal = endToEndId;
-    else if (mf.mtTag === '32A') tgtVal = amount + ' ' + currency + ' (' + valueDate + ')';
-    else if (mf.mtTag === '33B') tgtVal = instdAmt ? instdAmt.toFixed(2) + ' ' + (instdCcy || currency) : '';
-    else if (mf.mtTag === '50K' || mf.mtTag === '50A') tgtVal = debtorName + (debtorAccount ? ' [' + debtorAccount + ']' : '');
-    else if (mf.mtTag === '52A') tgtVal = debtorAgent;
-    else if (mf.mtTag === '57A') tgtVal = creditorAgent;
-    else if (mf.mtTag === '56A') tgtVal = intermediary;
-    else if (mf.mtTag === '59') tgtVal = creditorName + (creditorAccount ? ' [' + creditorAccount + ']' : '');
-    else if (mf.mtTag === '70') tgtVal = remittance;
-    else if (mf.mtTag === '71A') tgtVal = isoCharge + ' (from ' + mtCharge + ')';
-    else if (mf.mtTag === '72') tgtVal = instrForAgent;
-    else if (mf.mtTag === '77B') tgtVal = regRptg;
+    if (mf.mtTag === '21') tgtVal = endToEndId;
+    if (mf.mtTag === '32A') tgtVal = amount + ' ' + currency + ' (' + valueDate + ')';
+    if (mf.mtTag === '71A') {
+      var mtCharge = ext.chargeBearer || 'SHA';
+      tgtVal = (tv && tv.transformed ? tv.transformed : '') + ' (from ' + mtCharge + ')';
+    }
 
     if (srcVal || mf.status !== 'gap') {
       fieldMap.push({
@@ -711,7 +887,7 @@ function convertMTtoISO(rawText) {
         targetPath: mf.isoPath || '(dropped)',
         targetName: mf.isoName || '(no equivalent)',
         targetValue: tgtVal,
-        status: srcField ? mf.status : 'gap',
+        status: tv && tv.srcField ? mf.status : 'gap',
         notes: mf.notes
       });
     }
@@ -737,596 +913,19 @@ function convertMTtoISO(rawText) {
   }
 
   // Collect warnings from translation path
-  var path = getTranslationPath('MT103', 'pacs.008');
-  if (path) {
-    warnings = path.warnings.slice();
-  }
+  var path = getTranslationPath(mapping.sourceType, mapping.targetType);
+  if (path) warnings = path.warnings.slice();
 
-  // Add charge bearer specific warning
-  if (mtCharge !== 'SHA' && mtCharge !== 'OUR' && mtCharge !== 'BEN') {
-    warnings.push('Unrecognized charge bearer "' + mtCharge + '" — defaulted to SHAR');
-  }
-
-  // Build JSON representation
-  var jsonObj = {
-    messageType: 'pacs.008.001.08',
-    groupHeader: {
-      messageId: msgId,
-      creationDateTime: creDtTm,
-      numberOfTransactions: 1,
-      settlementMethod: sttlmMtd
-    },
-    creditTransferTransaction: {
-      paymentId: { instructionId: instrId, endToEndId: endToEndId },
-      interbankSettlementAmount: { currency: currency, amount: parseFloat(amount) },
-      interbankSettlementDate: valueDate,
-      chargeBearer: isoCharge,
-      debtor: { name: debtorName, account: debtorAccount, address: debtorAddr },
-      debtorAgent: debtorAgent,
-      creditorAgent: creditorAgent,
-      creditor: { name: creditorName, account: creditorAccount, address: creditorAddr },
-      remittanceInformation: remittance
-    },
-    _translation: {
-      source: 'MT103',
-      target: 'pacs.008',
-      lossless: false,
-      warnings: warnings,
-      dataGaps: mapping.dataGaps.map(function(g) { return g.isoPath + ': ' + g.description; })
-    }
-  };
-
-  if (instdAmt) {
-    jsonObj.creditTransferTransaction.instructedAmount = { currency: instdCcy || currency, amount: instdAmt };
-  }
-  if (intermediary) jsonObj.creditTransferTransaction.intermediaryAgent = intermediary;
-  if (instrForAgent) jsonObj.creditTransferTransaction.instructionForCreditorAgent = instrForAgent;
-
-  return {
-    error: false,
-    xml: xml,
-    json: jsonObj,
-    warnings: warnings,
-    fieldMap: fieldMap,
-    dataGaps: mapping.dataGaps,
-    dataLoss: []
-  };
-}
-
-// ─── pacs.008 → MT103 CONVERSION ───
-function convertISOtoMT(xmlText) {
-  var parser = new DOMParser();
-  var doc = parser.parseFromString(xmlText, 'text/xml');
-
-  // Check for parse errors
-  var parseError = doc.querySelector('parsererror');
-  if (parseError) {
-    return { error: true, message: 'XML parse error: ' + parseError.textContent.substring(0, 200) };
-  }
-
-  var root = doc.documentElement;
-  // Navigate to FIToFICstmrCdtTrf (handle namespace)
-  var ftf = getXmlEl(root, 'FIToFICstmrCdtTrf');
-  if (!ftf) {
-    return { error: true, message: 'Not a pacs.008 message — missing FIToFICstmrCdtTrf element' };
-  }
-
-  var grpHdr = getXmlEl(ftf, 'GrpHdr');
-  var txInf = getXmlEl(ftf, 'CdtTrfTxInf');
-  if (!txInf) {
-    return { error: true, message: 'Missing CdtTrfTxInf element' };
-  }
-
-  var mapping = MAPPING_PACS008_MT103;
-  var warnings = [];
-  var fieldMap = [];
-  var dataLoss = [];
-
-  // Extract values from XML
-  var endToEndId = getXmlPathText(txInf, 'PmtId/EndToEndId');
-  var instrId = getXmlPathText(txInf, 'PmtId/InstrId');
-  var amountEl = getXmlEl(txInf, 'IntrBkSttlmAmt');
-  var amount = amountEl ? amountEl.textContent : '0';
-  var currency = amountEl ? (amountEl.getAttribute('Ccy') || 'USD') : 'USD';
-  var settleDate = getXmlText(txInf, 'IntrBkSttlmDt') || new Date().toISOString().substring(0, 10);
-  var chrgBr = getXmlText(txInf, 'ChrgBr') || 'SHAR';
-
-  // Instructed amount
-  var instdAmtEl = getXmlEl(txInf, 'InstdAmt');
-  var instdAmt = instdAmtEl ? instdAmtEl.textContent : '';
-  var instdCcy = instdAmtEl ? (instdAmtEl.getAttribute('Ccy') || currency) : '';
-
-  // Debtor
-  var dbtr = getXmlEl(txInf, 'Dbtr');
-  var debtorName = dbtr ? getXmlText(dbtr, 'Nm') : '';
-  var dbtrAcct = getXmlPathText(txInf, 'DbtrAcct/Id/IBAN') || getXmlPathText(txInf, 'DbtrAcct/Id/Othr/Id');
-  var dbtrAddr = [];
-  if (dbtr) {
-    var pstlAdr = getXmlEl(dbtr, 'PstlAdr');
-    if (pstlAdr) {
-      var strtNm = getXmlText(pstlAdr, 'StrtNm');
-      var twnNm = getXmlText(pstlAdr, 'TwnNm');
-      var pstCd = getXmlText(pstlAdr, 'PstCd');
-      var ctry = getXmlText(pstlAdr, 'Ctry');
-      // Also check AdrLine
-      var children = pstlAdr.childNodes;
-      for (var i = 0; i < children.length; i++) {
-        if (children[i].nodeType === 1 && (children[i].localName === 'AdrLine' || children[i].nodeName === 'AdrLine')) {
-          dbtrAddr.push(children[i].textContent);
-        }
-      }
-      if (dbtrAddr.length === 0) {
-        if (strtNm) dbtrAddr.push(strtNm);
-        var cityLine = '';
-        if (twnNm) cityLine += twnNm;
-        if (pstCd) cityLine += ' ' + pstCd;
-        if (ctry) cityLine += ' ' + ctry;
-        if (cityLine) dbtrAddr.push(cityLine.trim());
-      }
-    }
-  }
-
-  // Debtor Agent
-  var debtorAgentBIC = getXmlPathText(txInf, 'DbtrAgt/FinInstnId/BICFI');
-
-  // Creditor Agent
-  var creditorAgentBIC = getXmlPathText(txInf, 'CdtrAgt/FinInstnId/BICFI');
-
-  // Creditor
-  var cdtr = getXmlEl(txInf, 'Cdtr');
-  var creditorName = cdtr ? getXmlText(cdtr, 'Nm') : '';
-  var cdtrAcct = getXmlPathText(txInf, 'CdtrAcct/Id/IBAN') || getXmlPathText(txInf, 'CdtrAcct/Id/Othr/Id');
-  var cdtrAddr = [];
-  if (cdtr) {
-    var pstlAdr2 = getXmlEl(cdtr, 'PstlAdr');
-    if (pstlAdr2) {
-      var children2 = pstlAdr2.childNodes;
-      for (var i = 0; i < children2.length; i++) {
-        if (children2[i].nodeType === 1 && (children2[i].localName === 'AdrLine' || children2[i].nodeName === 'AdrLine')) {
-          cdtrAddr.push(children2[i].textContent);
-        }
-      }
-      if (cdtrAddr.length === 0) {
-        var strtNm2 = getXmlText(pstlAdr2, 'StrtNm');
-        var twnNm2 = getXmlText(pstlAdr2, 'TwnNm');
-        var pstCd2 = getXmlText(pstlAdr2, 'PstCd');
-        var ctry2 = getXmlText(pstlAdr2, 'Ctry');
-        if (strtNm2) cdtrAddr.push(strtNm2);
-        var cityLine2 = '';
-        if (twnNm2) cityLine2 += twnNm2;
-        if (pstCd2) cityLine2 += ' ' + pstCd2;
-        if (ctry2) cityLine2 += ' ' + ctry2;
-        if (cityLine2) cdtrAddr.push(cityLine2.trim());
-      }
-    }
-  }
-
-  // Intermediary
-  var intrmyBIC = getXmlPathText(txInf, 'IntrmyAgt1/FinInstnId/BICFI');
-
-  // Remittance
-  var remittance = getXmlPathText(txInf, 'RmtInf/Ustrd');
-
-  // Instruction for creditor agent
-  var instrInfo = getXmlPathText(txInf, 'InstrForCdtrAgt/InstrInf');
-
-  // Charge bearer reverse mapping
-  var revChargeMap = mapping.valueMaps.chargeBearerReverse;
-  var mtCharge = revChargeMap[chrgBr] || 'SHA';
-  if (chrgBr === 'SLEV') {
-    warnings.push('SLEV (Service Level) has no exact MT equivalent — defaulted to SHA');
-  }
-
-  // Build MT fields
-  // Tag :20: Transaction Reference (truncate to 16)
-  var tag20 = endToEndId.substring(0, 16);
-  if (endToEndId.length > 16) {
-    warnings.push('EndToEndId truncated from ' + endToEndId.length + ' to 16 characters for :20:');
-  }
-
-  // Tag :23B:
-  var tag23B = 'CRED';
-
-  // Tag :32A: value date + currency + amount
-  var dateParts = settleDate.split('-');
-  var tag32ADate = dateParts[0].substring(2) + dateParts[1] + dateParts[2];
-  var tag32AAmount = parseFloat(amount).toFixed(2).replace('.', ',');
-  var tag32A = tag32ADate + currency + tag32AAmount;
-
-  // Tag :33B: instructed amount
-  var tag33B = '';
-  if (instdAmt) {
-    tag33B = instdCcy + parseFloat(instdAmt).toFixed(2).replace('.', ',');
-  }
-
-  // Tag :50K: ordering customer
-  var tag50K = '';
-  if (dbtrAcct) tag50K += '/' + dbtrAcct + '\n';
-  if (debtorName) tag50K += debtorName + '\n';
-  for (var i = 0; i < dbtrAddr.length && i < 3; i++) {
-    tag50K += dbtrAddr[i].substring(0, 35) + '\n';
-  }
-  tag50K = tag50K.replace(/\n$/, '');
-
-  // Tag :52A: ordering institution
-  var tag52A = debtorAgentBIC;
-
-  // Tag :56A: intermediary
-  var tag56A = intrmyBIC;
-
-  // Tag :57A: account with institution
-  var tag57A = creditorAgentBIC;
-
-  // Tag :59: beneficiary
-  var tag59 = '';
-  if (cdtrAcct) tag59 += '/' + cdtrAcct + '\n';
-  if (creditorName) tag59 += creditorName + '\n';
-  for (var i = 0; i < cdtrAddr.length && i < 3; i++) {
-    tag59 += cdtrAddr[i].substring(0, 35) + '\n';
-  }
-  tag59 = tag59.replace(/\n$/, '');
-
-  // Tag :70: remittance (split to 4x35)
-  var tag70 = '';
-  if (remittance) {
-    var rem = remittance.substring(0, 140);
-    if (remittance.length > 140) {
-      warnings.push('Remittance truncated from ' + remittance.length + ' to 140 characters');
-    }
-    for (var i = 0; i < rem.length; i += 35) {
-      if (tag70) tag70 += '\n';
-      tag70 += rem.substring(i, i + 35);
-    }
-  }
-
-  // Tag :71A: charges
-  var tag71A = mtCharge;
-
-  // Tag :72: sender to receiver info (split to 6x35)
-  var tag72 = '';
-  if (instrInfo) {
-    var inf = instrInfo.substring(0, 210);
-    for (var i = 0; i < inf.length; i += 35) {
-      if (tag72) tag72 += '\n';
-      tag72 += inf.substring(i, i + 35);
-    }
-  }
-
-  // Build MT message
-  var senderBIC = debtorAgentBIC ? debtorAgentBIC.substring(0, 8).padEnd(12, 'X') : 'BANKUS33XXXX';
-  var receiverBIC = creditorAgentBIC ? creditorAgentBIC.substring(0, 8).padEnd(12, 'X') : 'BANKDE33XXXX';
-
-  var mt = '{1:F01' + senderBIC + '0000000000}\n';
-  mt += '{2:I103' + receiverBIC + 'N}\n';
-  mt += '{4:\n';
-  mt += ':20:' + tag20 + '\n';
-  mt += ':23B:' + tag23B + '\n';
-  mt += ':32A:' + tag32A + '\n';
-
-  if (tag33B) mt += ':33B:' + tag33B + '\n';
-  if (tag50K) mt += ':50K:' + tag50K + '\n';
-  if (tag52A) mt += ':52A:' + tag52A + '\n';
-  if (tag56A) mt += ':56A:' + tag56A + '\n';
-  if (tag57A) mt += ':57A:' + tag57A + '\n';
-  if (tag59) mt += ':59:' + tag59 + '\n';
-  if (tag70) mt += ':70:' + tag70 + '\n';
-  mt += ':71A:' + tag71A + '\n';
-  if (tag72) mt += ':72:' + tag72 + '\n';
-  mt += '-}';
-
-  // Build field map for diagram
-  var mapFields = mapping.fields;
-  for (var i = 0; i < mapFields.length; i++) {
-    var mf = mapFields[i];
-    var srcVal = '';
-    var tgtVal = '';
-
-    // Get source value from XML
-    if (mf.isoPath === 'CdtTrfTxInf/PmtId/EndToEndId') { srcVal = endToEndId; tgtVal = tag20; }
-    else if (mf.isoPath === 'CdtTrfTxInf/IntrBkSttlmAmt') { srcVal = amount + ' ' + currency; tgtVal = tag32A; }
-    else if (mf.isoPath === 'CdtTrfTxInf/InstdAmt') { srcVal = instdAmt ? instdAmt + ' ' + instdCcy : ''; tgtVal = tag33B; }
-    else if (mf.isoPath === 'CdtTrfTxInf/Dbtr') { srcVal = debtorName; tgtVal = tag50K.split('\n')[0] || ''; }
-    else if (mf.isoPath === 'CdtTrfTxInf/DbtrAgt/FinInstnId/BICFI') { srcVal = debtorAgentBIC; tgtVal = tag52A; }
-    else if (mf.isoPath === 'CdtTrfTxInf/CdtrAgt/FinInstnId/BICFI') { srcVal = creditorAgentBIC; tgtVal = tag57A; }
-    else if (mf.isoPath === 'CdtTrfTxInf/Cdtr') { srcVal = creditorName; tgtVal = tag59.split('\n')[0] || ''; }
-    else if (mf.isoPath === 'CdtTrfTxInf/RmtInf/Ustrd') { srcVal = remittance; tgtVal = tag70; }
-    else if (mf.isoPath === 'CdtTrfTxInf/ChrgBr') { srcVal = chrgBr; tgtVal = tag71A + ' (from ' + chrgBr + ')'; }
-    else if (mf.isoPath === 'CdtTrfTxInf/IntrmyAgt1/FinInstnId/BICFI') { srcVal = intrmyBIC; tgtVal = tag56A; }
-    else if (mf.isoPath === 'CdtTrfTxInf/InstrForCdtrAgt/InstrInf') { srcVal = instrInfo; tgtVal = tag72; }
-
-    if (srcVal || tgtVal) {
-      fieldMap.push({
-        sourceTag: mf.isoPath,
-        sourceName: mf.isoName,
-        sourceValue: srcVal,
-        targetPath: ':' + mf.mtTag + ':',
-        targetName: mf.mtName,
-        targetValue: tgtVal,
-        status: mf.status,
-        notes: mf.notes
-      });
-    }
-  }
-
-  // Auto-generated fields
-  var autoGen = mapping.autoGenerated;
-  for (var i = 0; i < autoGen.length; i++) {
-    fieldMap.push({
-      sourceTag: '—',
-      sourceName: '(auto-generated)',
-      sourceValue: '',
-      targetPath: autoGen[i].mtField,
-      targetName: autoGen[i].description,
-      targetValue: autoGen[i].mtField.indexOf('Block 1') !== -1 ? senderBIC :
-                   autoGen[i].mtField.indexOf('Block 2') !== -1 ? receiverBIC :
-                   tag23B,
-      status: 'auto',
-      notes: autoGen[i].description
-    });
-  }
-
-  // Data loss items
-  var lossItems = mapping.dataLoss;
-  for (var i = 0; i < lossItems.length; i++) {
-    var lostVal = getXmlPathText(txInf, lossItems[i].isoPath);
-    if (!lostVal && lossItems[i].isoPath === 'CdtTrfTxInf/PmtId/InstrId') lostVal = instrId;
-    if (lostVal) {
-      dataLoss.push({
-        path: lossItems[i].isoPath,
-        description: lossItems[i].description,
-        lostValue: lostVal
-      });
-      warnings.push(lossItems[i].description + (lostVal ? ' (value: ' + lostVal.substring(0, 40) + ')' : ''));
-    }
-  }
-
-  // Path warnings
-  var path = getTranslationPath('pacs.008', 'MT103');
-  if (path) {
-    for (var i = 0; i < path.warnings.length; i++) {
-      if (warnings.indexOf(path.warnings[i]) === -1) {
-        warnings.push(path.warnings[i]);
-      }
+  // Charge bearer warning (MT103 only)
+  if (mapping.sourceType === 'MT103') {
+    var mtCharge = ext.chargeBearer || 'SHA';
+    if (mtCharge !== 'SHA' && mtCharge !== 'OUR' && mtCharge !== 'BEN') {
+      warnings.push('Unrecognized charge bearer "' + mtCharge + '" — defaulted to SHAR');
     }
   }
 
   // Build JSON
-  var jsonObj = {
-    messageType: 'MT103',
-    transactionReference: tag20,
-    bankOperationCode: tag23B,
-    valueDateCurrencyAmount: {
-      date: settleDate,
-      currency: currency,
-      amount: parseFloat(amount)
-    },
-    chargeBearer: tag71A,
-    orderingCustomer: {
-      account: dbtrAcct,
-      name: debtorName,
-      address: dbtrAddr
-    },
-    beneficiary: {
-      account: cdtrAcct,
-      name: creditorName,
-      address: cdtrAddr
-    },
-    remittanceInformation: remittance,
-    _translation: {
-      source: 'pacs.008',
-      target: 'MT103',
-      lossless: false,
-      warnings: warnings,
-      dataLoss: dataLoss.map(function(d) { return d.path + ': ' + d.description; })
-    }
-  };
-
-  if (debtorAgentBIC) jsonObj.orderingInstitution = debtorAgentBIC;
-  if (creditorAgentBIC) jsonObj.accountWithInstitution = creditorAgentBIC;
-
-  return {
-    error: false,
-    mt: mt,
-    xml: mt,   // For display consistency
-    json: jsonObj,
-    warnings: warnings,
-    fieldMap: fieldMap,
-    dataGaps: [],
-    dataLoss: dataLoss
-  };
-}
-
-// ─── MT202 → pacs.009 CONVERSION ───
-function convertMT202toPacs009(rawText) {
-  var parsed = parseMT(rawText);
-  if (!parsed.valid && parsed.errors.length > 0) {
-    return { error: true, message: 'MT parse errors:\n' + parsed.errors.map(function(e) { return '• ' + e.message; }).join('\n') };
-  }
-
-  var ext = parsed.extracted;
-  var fields = parsed.fields;
-  var mapping = MAPPING_MT202_PACS009;
-  var warnings = [];
-  var fieldMap = [];
-
-  function getField(tag) { return fields[tag] || null; }
-  function getBIC(tag) {
-    var f = getField(tag);
-    if (!f) return '';
-    return (f.decoded && typeof f.decoded === 'string') ? f.decoded : f.rawValue.trim();
-  }
-
-  var txRef = ext.transactionReference || 'NOTPROVIDED';
-  var relRef = ext.relatedReference || txRef;
-  var endToEndId = relRef.substring(0, 35);
-  var msgId = 'BRIDGE-' + new Date().toISOString().substring(0, 10).replace(/-/g, '') + '-' + Math.random().toString(36).substring(2, 8).toUpperCase();
-  var instrId = 'INSTR-' + new Date().toISOString().substring(0, 10).replace(/-/g, '') + '-' + Math.random().toString(36).substring(2, 6).toUpperCase();
-  var creDtTm = new Date().toISOString().substring(0, 19);
-  var sttlmMtd = fields['53A'] ? 'COVE' : 'CLRG';
-
-  var amount = ext.amount ? ext.amount.toFixed(2) : '0.00';
-  var currency = ext.currency || 'USD';
-  var valueDate = ext.valueDate || new Date().toISOString().substring(0, 10);
-
-  var debtorBIC = getBIC('52A');
-  var senderCorr = getBIC('53A');
-  var receiverCorr = getBIC('54A');
-  var intermediary = getBIC('56A');
-  var creditorAgent = getBIC('57A');
-  var beneficiaryInst = getBIC('58A');
-
-  var instrForAgent = ext.senderToReceiverInfo || '';
-  if (typeof instrForAgent !== 'string') instrForAgent = '';
-  instrForAgent = instrForAgent.replace(/\n/g, ' ');
-
-  // Build XML
-  var xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
-  xml += '<Document xmlns="' + mapping.isoNamespace + '">\n';
-  xml += '  <' + mapping.rootElement + '>\n';
-
-  xml += '    <GrpHdr>\n';
-  xml += '      <MsgId>' + escXml(msgId) + '</MsgId>\n';
-  xml += '      <CreDtTm>' + creDtTm + '</CreDtTm>\n';
-  xml += '      <NbOfTxs>1</NbOfTxs>\n';
-  xml += '      <SttlmInf><SttlmMtd>' + sttlmMtd + '</SttlmMtd></SttlmInf>\n';
-  xml += '    </GrpHdr>\n';
-
-  xml += '    <CdtTrfTxInf>\n';
-  xml += '      <PmtId>\n';
-  xml += '        <InstrId>' + escXml(instrId) + '</InstrId>\n';
-  xml += '        <EndToEndId>' + escXml(endToEndId) + '</EndToEndId>\n';
-  xml += '      </PmtId>\n';
-  xml += '      <IntrBkSttlmAmt Ccy="' + escXml(currency) + '">' + amount + '</IntrBkSttlmAmt>\n';
-  xml += '      <IntrBkSttlmDt>' + valueDate + '</IntrBkSttlmDt>\n';
-
-  if (intermediary) {
-    xml += '      <IntrmyAgt1>\n';
-    xml += '        <FinInstnId><BICFI>' + escXml(intermediary) + '</BICFI></FinInstnId>\n';
-    xml += '      </IntrmyAgt1>\n';
-  }
-
-  if (senderCorr) {
-    xml += '      <InstgRmbrsmntAgt>\n';
-    xml += '        <FinInstnId><BICFI>' + escXml(senderCorr) + '</BICFI></FinInstnId>\n';
-    xml += '      </InstgRmbrsmntAgt>\n';
-  }
-
-  if (receiverCorr) {
-    xml += '      <InstdRmbrsmntAgt>\n';
-    xml += '        <FinInstnId><BICFI>' + escXml(receiverCorr) + '</BICFI></FinInstnId>\n';
-    xml += '      </InstdRmbrsmntAgt>\n';
-  }
-
-  if (debtorBIC) {
-    xml += '      <Dbtr>\n';
-    xml += '        <FinInstnId><BICFI>' + escXml(debtorBIC) + '</BICFI></FinInstnId>\n';
-    xml += '      </Dbtr>\n';
-  }
-
-  if (creditorAgent) {
-    xml += '      <CdtrAgt>\n';
-    xml += '        <FinInstnId><BICFI>' + escXml(creditorAgent) + '</BICFI></FinInstnId>\n';
-    xml += '      </CdtrAgt>\n';
-  }
-
-  xml += '      <Cdtr>\n';
-  xml += '        <FinInstnId><BICFI>' + escXml(beneficiaryInst) + '</BICFI></FinInstnId>\n';
-  xml += '      </Cdtr>\n';
-
-  if (instrForAgent) {
-    xml += '      <InstrForNxtAgt>\n';
-    xml += '        <InstrInf>' + escXml(instrForAgent) + '</InstrInf>\n';
-    xml += '      </InstrForNxtAgt>\n';
-  }
-
-  xml += '    </CdtTrfTxInf>\n';
-  xml += '  </' + mapping.rootElement + '>\n';
-  xml += '</Document>';
-
-  // Build field map
-  var mapFields = mapping.fields;
-  for (var i = 0; i < mapFields.length; i++) {
-    var mf = mapFields[i];
-    var srcField = getField(mf.mtTag);
-    var srcVal = srcField ? srcField.rawValue : '';
-    var tgtVal = '';
-
-    if (mf.mtTag === '20') tgtVal = msgId;
-    else if (mf.mtTag === '21') tgtVal = endToEndId;
-    else if (mf.mtTag === '32A') tgtVal = amount + ' ' + currency + ' (' + valueDate + ')';
-    else if (mf.mtTag === '52A') tgtVal = debtorBIC;
-    else if (mf.mtTag === '53A') tgtVal = senderCorr;
-    else if (mf.mtTag === '54A') tgtVal = receiverCorr;
-    else if (mf.mtTag === '56A') tgtVal = intermediary;
-    else if (mf.mtTag === '57A') tgtVal = creditorAgent;
-    else if (mf.mtTag === '58A') tgtVal = beneficiaryInst;
-    else if (mf.mtTag === '72') tgtVal = instrForAgent;
-
-    if (srcVal || mf.status !== 'gap') {
-      fieldMap.push({
-        sourceTag: ':' + mf.mtTag + ':',
-        sourceName: mf.mtName,
-        sourceValue: srcVal,
-        targetPath: mf.isoPath || '(dropped)',
-        targetName: mf.isoName || '(no equivalent)',
-        targetValue: tgtVal,
-        status: srcField ? mf.status : 'gap',
-        notes: mf.notes
-      });
-    }
-  }
-
-  // Auto-generated fields
-  var autoGen = mapping.autoGenerated;
-  for (var i = 0; i < autoGen.length; i++) {
-    fieldMap.push({
-      sourceTag: '—',
-      sourceName: '(auto-generated)',
-      sourceValue: '',
-      targetPath: autoGen[i].isoPath,
-      targetName: autoGen[i].description,
-      targetValue: autoGen[i].isoPath === 'GrpHdr/MsgId' ? msgId :
-                   autoGen[i].isoPath === 'GrpHdr/CreDtTm' ? creDtTm :
-                   autoGen[i].isoPath === 'GrpHdr/NbOfTxs' ? '1' :
-                   autoGen[i].isoPath.indexOf('SttlmMtd') !== -1 ? sttlmMtd :
-                   instrId,
-      status: 'auto',
-      notes: autoGen[i].description
-    });
-  }
-
-  var path = getTranslationPath('MT202', 'pacs.009');
-  if (path) warnings = path.warnings.slice();
-
-  var jsonObj = {
-    messageType: 'pacs.009.001.08',
-    groupHeader: {
-      messageId: msgId,
-      creationDateTime: creDtTm,
-      numberOfTransactions: 1,
-      settlementMethod: sttlmMtd
-    },
-    creditTransferTransaction: {
-      paymentId: { instructionId: instrId, endToEndId: endToEndId },
-      interbankSettlementAmount: { currency: currency, amount: parseFloat(amount) },
-      interbankSettlementDate: valueDate,
-      debtor: debtorBIC,
-      creditorAgent: creditorAgent,
-      creditor: beneficiaryInst
-    },
-    _translation: {
-      source: 'MT202',
-      target: 'pacs.009',
-      lossless: false,
-      warnings: warnings,
-      dataGaps: mapping.dataGaps.map(function(g) { return g.isoPath + ': ' + g.description; })
-    }
-  };
-
-  if (senderCorr) jsonObj.creditTransferTransaction.instructingReimbursementAgent = senderCorr;
-  if (receiverCorr) jsonObj.creditTransferTransaction.instructedReimbursementAgent = receiverCorr;
-  if (intermediary) jsonObj.creditTransferTransaction.intermediaryAgent = intermediary;
-  if (instrForAgent) jsonObj.creditTransferTransaction.instructionForNextAgent = instrForAgent;
+  var jsonObj = _buildMTtoISOJson(mapping, ext, fields, msgId, creDtTm, instrId, endToEndId, sttlmMtd, amount, currency, valueDate, transformedValues, warnings);
 
   return {
     error: false,
@@ -1334,208 +933,19 @@ function convertMT202toPacs009(rawText) {
     json: jsonObj,
     warnings: warnings,
     fieldMap: fieldMap,
-    dataGaps: mapping.dataGaps,
+    dataGaps: mapping.dataGaps || [],
     dataLoss: []
   };
 }
 
-// ─── pacs.009 → MT202 CONVERSION ───
-function convertPacs009toMT202(xmlText) {
-  var parser = new DOMParser();
-  var doc = parser.parseFromString(xmlText, 'text/xml');
-
-  var parseError = doc.querySelector('parsererror');
-  if (parseError) {
-    return { error: true, message: 'XML parse error: ' + parseError.textContent.substring(0, 200) };
-  }
-
-  var root = doc.documentElement;
-  var ftf = getXmlEl(root, 'FICdtTrf');
-  if (!ftf) {
-    return { error: true, message: 'Not a pacs.009 message — missing FICdtTrf element' };
-  }
-
-  var grpHdr = getXmlEl(ftf, 'GrpHdr');
-  var txInf = getXmlEl(ftf, 'CdtTrfTxInf');
-  if (!txInf) {
-    return { error: true, message: 'Missing CdtTrfTxInf element' };
-  }
-
-  var mapping = MAPPING_PACS009_MT202;
-  var warnings = [];
-  var fieldMap = [];
-  var dataLoss = [];
-
-  var msgId = grpHdr ? getXmlText(grpHdr, 'MsgId') : '';
-  var endToEndId = getXmlPathText(txInf, 'PmtId/EndToEndId');
-  var instrId = getXmlPathText(txInf, 'PmtId/InstrId');
-  var amountEl = getXmlEl(txInf, 'IntrBkSttlmAmt');
-  var amount = amountEl ? amountEl.textContent : '0';
-  var currency = amountEl ? (amountEl.getAttribute('Ccy') || 'USD') : 'USD';
-  var settleDate = getXmlText(txInf, 'IntrBkSttlmDt') || new Date().toISOString().substring(0, 10);
-
-  var debtorBIC = getXmlPathText(txInf, 'Dbtr/FinInstnId/BICFI');
-  var senderCorr = getXmlPathText(txInf, 'InstgRmbrsmntAgt/FinInstnId/BICFI');
-  var receiverCorr = getXmlPathText(txInf, 'InstdRmbrsmntAgt/FinInstnId/BICFI');
-  var intermediary = getXmlPathText(txInf, 'IntrmyAgt1/FinInstnId/BICFI');
-  var creditorAgent = getXmlPathText(txInf, 'CdtrAgt/FinInstnId/BICFI');
-  var creditorBIC = getXmlPathText(txInf, 'Cdtr/FinInstnId/BICFI');
-  var instrInfo = getXmlPathText(txInf, 'InstrForNxtAgt/InstrInf');
-
-  // Build MT fields
-  var tag20 = (msgId || instrId || 'BRIDGE' + Date.now()).substring(0, 16);
-  var tag21 = endToEndId.substring(0, 16);
-  if (endToEndId.length > 16) {
-    warnings.push('EndToEndId truncated from ' + endToEndId.length + ' to 16 characters for :21:');
-  }
-
-  var dateParts = settleDate.split('-');
-  var tag32ADate = dateParts[0].substring(2) + dateParts[1] + dateParts[2];
-  var tag32AAmount = parseFloat(amount).toFixed(2).replace('.', ',');
-  var tag32A = tag32ADate + currency + tag32AAmount;
-
-  var tag72 = '';
-  if (instrInfo) {
-    var inf = instrInfo.substring(0, 210);
-    for (var i = 0; i < inf.length; i += 35) {
-      if (tag72) tag72 += '\n';
-      tag72 += inf.substring(i, i + 35);
-    }
-  }
-
-  // Build MT message
-  var senderBICEnv = debtorBIC ? debtorBIC.substring(0, 8).padEnd(12, 'X') : 'BANKUS33XXXX';
-  var receiverBICEnv = creditorBIC ? creditorBIC.substring(0, 8).padEnd(12, 'X') : 'BANKDE33XXXX';
-
-  var mt = '{1:F01' + senderBICEnv + '0000000000}\n';
-  mt += '{2:I202' + receiverBICEnv + 'N}\n';
-  mt += '{4:\n';
-  mt += ':20:' + tag20 + '\n';
-  mt += ':21:' + tag21 + '\n';
-  mt += ':32A:' + tag32A + '\n';
-  if (debtorBIC) mt += ':52A:' + debtorBIC + '\n';
-  if (senderCorr) mt += ':53A:' + senderCorr + '\n';
-  if (receiverCorr) mt += ':54A:' + receiverCorr + '\n';
-  if (intermediary) mt += ':56A:' + intermediary + '\n';
-  if (creditorAgent) mt += ':57A:' + creditorAgent + '\n';
-  mt += ':58A:' + creditorBIC + '\n';
-  if (tag72) mt += ':72:' + tag72 + '\n';
-  mt += '-}';
-
-  // Build field map
-  var mapFields = mapping.fields;
-  for (var i = 0; i < mapFields.length; i++) {
-    var mf = mapFields[i];
-    var srcVal = '';
-    var tgtVal = '';
-
-    if (mf.isoPath === 'CdtTrfTxInf/PmtId/EndToEndId') { srcVal = endToEndId; tgtVal = tag21; }
-    else if (mf.isoPath === 'CdtTrfTxInf/IntrBkSttlmAmt') { srcVal = amount + ' ' + currency; tgtVal = tag32A; }
-    else if (mf.isoPath === 'CdtTrfTxInf/Dbtr/FinInstnId/BICFI') { srcVal = debtorBIC; tgtVal = debtorBIC; }
-    else if (mf.isoPath === 'CdtTrfTxInf/InstgRmbrsmntAgt/FinInstnId/BICFI') { srcVal = senderCorr; tgtVal = senderCorr; }
-    else if (mf.isoPath === 'CdtTrfTxInf/InstdRmbrsmntAgt/FinInstnId/BICFI') { srcVal = receiverCorr; tgtVal = receiverCorr; }
-    else if (mf.isoPath === 'CdtTrfTxInf/IntrmyAgt1/FinInstnId/BICFI') { srcVal = intermediary; tgtVal = intermediary; }
-    else if (mf.isoPath === 'CdtTrfTxInf/CdtrAgt/FinInstnId/BICFI') { srcVal = creditorAgent; tgtVal = creditorAgent; }
-    else if (mf.isoPath === 'CdtTrfTxInf/Cdtr/FinInstnId/BICFI') { srcVal = creditorBIC; tgtVal = creditorBIC; }
-    else if (mf.isoPath === 'CdtTrfTxInf/InstrForNxtAgt/InstrInf') { srcVal = instrInfo; tgtVal = tag72; }
-
-    if (srcVal || tgtVal) {
-      fieldMap.push({
-        sourceTag: mf.isoPath,
-        sourceName: mf.isoName,
-        sourceValue: srcVal,
-        targetPath: ':' + mf.mtTag + ':',
-        targetName: mf.mtName,
-        targetValue: tgtVal,
-        status: mf.status,
-        notes: mf.notes
-      });
-    }
-  }
-
-  // Auto-generated
-  var autoGen = mapping.autoGenerated;
-  for (var i = 0; i < autoGen.length; i++) {
-    fieldMap.push({
-      sourceTag: '—',
-      sourceName: '(auto-generated)',
-      sourceValue: '',
-      targetPath: autoGen[i].mtField,
-      targetName: autoGen[i].description,
-      targetValue: autoGen[i].mtField.indexOf('Block 1') !== -1 ? senderBICEnv :
-                   autoGen[i].mtField.indexOf('Block 2') !== -1 ? receiverBICEnv :
-                   tag20,
-      status: 'auto',
-      notes: autoGen[i].description
-    });
-  }
-
-  // Data loss
-  var lossItems = mapping.dataLoss;
-  for (var i = 0; i < lossItems.length; i++) {
-    var lostVal = getXmlPathText(txInf, lossItems[i].isoPath);
-    if (!lostVal && lossItems[i].isoPath === 'CdtTrfTxInf/PmtId/InstrId') lostVal = instrId;
-    if (lostVal) {
-      dataLoss.push({ path: lossItems[i].isoPath, description: lossItems[i].description, lostValue: lostVal });
-      warnings.push(lossItems[i].description + (lostVal ? ' (value: ' + lostVal.substring(0, 40) + ')' : ''));
-    }
-  }
-
-  var path = getTranslationPath('pacs.009', 'MT202');
-  if (path) {
-    for (var i = 0; i < path.warnings.length; i++) {
-      if (warnings.indexOf(path.warnings[i]) === -1) warnings.push(path.warnings[i]);
-    }
-  }
-
-  var jsonObj = {
-    messageType: 'MT202',
-    transactionReference: tag20,
-    relatedReference: tag21,
-    valueDateCurrencyAmount: { date: settleDate, currency: currency, amount: parseFloat(amount) },
-    beneficiaryInstitution: creditorBIC,
-    _translation: {
-      source: 'pacs.009',
-      target: 'MT202',
-      lossless: false,
-      warnings: warnings,
-      dataLoss: dataLoss.map(function(d) { return d.path + ': ' + d.description; })
-    }
-  };
-
-  if (debtorBIC) jsonObj.orderingInstitution = debtorBIC;
-  if (creditorAgent) jsonObj.accountWithInstitution = creditorAgent;
-
-  return {
-    error: false,
-    mt: mt,
-    xml: mt,
-    json: jsonObj,
-    warnings: warnings,
-    fieldMap: fieldMap,
-    dataGaps: [],
-    dataLoss: dataLoss
-  };
-}
-
-// ─── MT940 → camt.053 CONVERSION ───
-function convertMT940toCamt053(rawText) {
-  var parsed = parseMT(rawText);
-  if (!parsed.valid && parsed.errors.length > 0) {
-    return { error: true, message: 'MT parse errors:\n' + parsed.errors.map(function(e) { return '• ' + e.message; }).join('\n') };
-  }
-
+// Statement-specific MT → ISO conversion (MT940 → camt.053)
+function _convertMT940toISO(parsed, mapping, msgId, creDtTm) {
   var ext = parsed.extracted;
   var fields = parsed.fields;
-  var mapping = MAPPING_MT940_CAMT053;
   var warnings = [];
   var fieldMap = [];
 
-  function getField(tag) { return fields[tag] || null; }
-
   var txRef = ext.transactionReference || 'NOTPROVIDED';
-  var msgId = 'BRIDGE-' + new Date().toISOString().substring(0, 10).replace(/-/g, '') + '-' + Math.random().toString(36).substring(2, 8).toUpperCase();
-  var creDtTm = new Date().toISOString().substring(0, 19);
   var stmtId = txRef.substring(0, 35);
 
   // Account identification
@@ -1555,9 +965,7 @@ function convertMT940toCamt053(rawText) {
   // Forward available balances (repeating)
   var fwdAvailBals = [];
   if (fields['65'] && Array.isArray(fields['65'])) {
-    for (var i = 0; i < fields['65'].length; i++) {
-      fwdAvailBals.push(fields['65'][i].decoded);
-    }
+    for (var i = 0; i < fields['65'].length; i++) fwdAvailBals.push(fields['65'][i].decoded);
   } else if (fields['65']) {
     fwdAvailBals.push(fields['65'].decoded);
   }
@@ -1630,12 +1038,10 @@ function convertMT940toCamt053(rawText) {
     xml += '        <ValDt><Dt>' + sl.valueDate + '</Dt></ValDt>\n';
     xml += '        <BkTxCd><Prtry><Cd>' + escXml(sl.transactionType + sl.identificationCode) + '</Cd></Prtry></BkTxCd>\n';
 
-    // Entry details
     xml += '        <NtryDtls><TxDtls>\n';
     if (sl.customerReference) {
       xml += '          <Refs><AcctSvcrRef>' + escXml(sl.customerReference) + '</AcctSvcrRef></Refs>\n';
     }
-    // Paired :86: info
     if (infoLines[i]) {
       var infoText = typeof infoLines[i] === 'string' ? infoLines[i] : '';
       if (infoText) {
@@ -1654,7 +1060,7 @@ function convertMT940toCamt053(rawText) {
   var mapFields = mapping.fields;
   for (var i = 0; i < mapFields.length; i++) {
     var mf = mapFields[i];
-    var srcField = getField(mf.mtTag);
+    var srcField = fields[mf.mtTag];
     var srcVal = '';
     var tgtVal = '';
 
@@ -1699,7 +1105,7 @@ function convertMT940toCamt053(rawText) {
     });
   }
 
-  var path = getTranslationPath('MT940', 'camt.053');
+  var path = getTranslationPath(mapping.sourceType, mapping.targetType);
   if (path) warnings = path.warnings.slice();
 
   // Build JSON
@@ -1720,7 +1126,7 @@ function convertMT940toCamt053(rawText) {
   }
 
   var jsonObj = {
-    messageType: 'camt.053.001.08',
+    messageType: mapping.isoNamespace.indexOf('camt.053') !== -1 ? 'camt.053.001.08' : mapping.targetType,
     groupHeader: { messageId: msgId, creationDateTime: creDtTm },
     statement: {
       id: stmtId,
@@ -1731,11 +1137,11 @@ function convertMT940toCamt053(rawText) {
       entries: entries
     },
     _translation: {
-      source: 'MT940',
-      target: 'camt.053',
+      source: mapping.sourceType,
+      target: mapping.targetType,
       lossless: false,
       warnings: warnings,
-      dataGaps: mapping.dataGaps.map(function(g) { return g.isoPath + ': ' + g.description; })
+      dataGaps: (mapping.dataGaps || []).map(function(g) { return g.isoPath + ': ' + g.description; })
     }
   };
 
@@ -1748,13 +1154,99 @@ function convertMT940toCamt053(rawText) {
     json: jsonObj,
     warnings: warnings,
     fieldMap: fieldMap,
-    dataGaps: mapping.dataGaps,
+    dataGaps: mapping.dataGaps || [],
     dataLoss: []
   };
 }
 
-// ─── camt.053 → MT940 CONVERSION ───
-function convertCamt053toMT940(xmlText) {
+// Helper: build nested XML from a slash-delimited path
+function _buildNestedXml(path, value, indent) {
+  var parts = path.split('/');
+  var xml = '';
+  for (var i = 0; i < parts.length; i++) xml += indent + new Array(i + 1).join('  ') + '<' + parts[i] + '>';
+  // Close inner elements inline for leaf, or with newlines for nesting
+  if (parts.length === 1) {
+    return indent + '<' + parts[0] + '>' + value + '</' + parts[0] + '>\n';
+  }
+  xml = '';
+  var open = '';
+  var close = '';
+  for (var i = 0; i < parts.length; i++) open += '<' + parts[i] + '>';
+  for (var i = parts.length - 1; i >= 0; i--) close += '</' + parts[i] + '>';
+  return indent + open + value + close + '\n';
+}
+
+// Helper: build JSON object for MT → ISO payment conversions
+function _buildMTtoISOJson(mapping, ext, fields, msgId, creDtTm, instrId, endToEndId, sttlmMtd, amount, currency, valueDate, transformedValues, warnings) {
+  var isoVersion = mapping.isoNamespace.indexOf('pacs.008') !== -1 ? 'pacs.008.001.08' :
+                   mapping.isoNamespace.indexOf('pacs.009') !== -1 ? 'pacs.009.001.08' : mapping.targetType;
+
+  var jsonObj = {
+    messageType: isoVersion,
+    groupHeader: {
+      messageId: msgId,
+      creationDateTime: creDtTm,
+      numberOfTransactions: 1,
+      settlementMethod: sttlmMtd
+    },
+    creditTransferTransaction: {
+      paymentId: { instructionId: instrId, endToEndId: endToEndId },
+      interbankSettlementAmount: { currency: currency, amount: parseFloat(amount) },
+      interbankSettlementDate: valueDate
+    },
+    _translation: {
+      source: mapping.sourceType,
+      target: mapping.targetType,
+      lossless: false,
+      warnings: warnings,
+      dataGaps: (mapping.dataGaps || []).map(function(g) { return g.isoPath + ': ' + g.description; })
+    }
+  };
+
+  // Add type-specific fields
+  if (mapping.sourceType === 'MT103') {
+    var debtorTv = transformedValues['50K'] || transformedValues['50A'];
+    var creditorTv = transformedValues['59'];
+    var debtor = debtorTv ? debtorTv.transformed : {};
+    var creditor = creditorTv ? creditorTv.transformed : {};
+    jsonObj.creditTransferTransaction.chargeBearer = transformedValues['71A'] ? transformedValues['71A'].transformed : 'SHAR';
+    jsonObj.creditTransferTransaction.debtor = { name: debtor.name || '', account: debtor.account || '', address: debtor.address || [] };
+    jsonObj.creditTransferTransaction.debtorAgent = fields['52A'] ? fields['52A'].rawValue.trim() : '';
+    jsonObj.creditTransferTransaction.creditorAgent = fields['57A'] ? fields['57A'].rawValue.trim() : '';
+    jsonObj.creditTransferTransaction.creditor = { name: creditor.name || '', account: creditor.account || '', address: creditor.address || [] };
+    var remittance = ext.remittanceInformation || '';
+    if (typeof remittance === 'string') jsonObj.creditTransferTransaction.remittanceInformation = remittance.replace(/\n/g, ' ');
+    if (ext.instructedAmount) {
+      jsonObj.creditTransferTransaction.instructedAmount = { currency: ext.instructedCurrency || currency, amount: ext.instructedAmount };
+    }
+    var intermediary = fields['56A'] ? fields['56A'].rawValue.trim() : '';
+    if (intermediary) jsonObj.creditTransferTransaction.intermediaryAgent = intermediary;
+    var instrForAgent = ext.senderToReceiverInfo || '';
+    if (typeof instrForAgent === 'string' && instrForAgent) jsonObj.creditTransferTransaction.instructionForCreditorAgent = instrForAgent.replace(/\n/g, ' ');
+  } else if (mapping.sourceType === 'MT202') {
+    var getBIC = function(tag) {
+      var f = fields[tag];
+      if (!f) return '';
+      return (f.decoded && typeof f.decoded === 'string') ? f.decoded : f.rawValue.trim();
+    };
+    jsonObj.creditTransferTransaction.debtor = getBIC('52A');
+    jsonObj.creditTransferTransaction.creditorAgent = getBIC('57A');
+    jsonObj.creditTransferTransaction.creditor = getBIC('58A');
+    var senderCorr = getBIC('53A');
+    var receiverCorr = getBIC('54A');
+    var intermediary = getBIC('56A');
+    var instrForAgent = ext.senderToReceiverInfo || '';
+    if (senderCorr) jsonObj.creditTransferTransaction.instructingReimbursementAgent = senderCorr;
+    if (receiverCorr) jsonObj.creditTransferTransaction.instructedReimbursementAgent = receiverCorr;
+    if (intermediary) jsonObj.creditTransferTransaction.intermediaryAgent = intermediary;
+    if (typeof instrForAgent === 'string' && instrForAgent) jsonObj.creditTransferTransaction.instructionForNextAgent = instrForAgent.replace(/\n/g, ' ');
+  }
+
+  return jsonObj;
+}
+
+// ─── GENERIC ISO → MT CONVERSION ENGINE ───
+function convertISOtoMT(xmlText, mapping) {
   var parser = new DOMParser();
   var doc = parser.parseFromString(xmlText, 'text/xml');
 
@@ -1764,17 +1256,268 @@ function convertCamt053toMT940(xmlText) {
   }
 
   var root = doc.documentElement;
-  var bkStmt = getXmlEl(root, 'BkToCstmrStmt');
-  if (!bkStmt) {
-    return { error: true, message: 'Not a camt.053 message — missing BkToCstmrStmt element' };
+  var ftf = getXmlEl(root, mapping.isoRootElement);
+  if (!ftf) {
+    return { error: true, message: 'Not a ' + mapping.sourceType + ' message — missing ' + mapping.isoRootElement + ' element' };
   }
 
-  var stmt = getXmlEl(bkStmt, 'Stmt');
+  // Statement-type handling (camt.053 → MT940)
+  if (mapping.isStatement) {
+    return _convertCamt053toMT940(ftf, mapping);
+  }
+
+  // Payment-type handling (pacs.008 → MT103, pacs.009 → MT202)
+  var grpHdr = getXmlEl(ftf, 'GrpHdr');
+  var txInf = getXmlEl(ftf, mapping.isoTxPath);
+  if (!txInf) {
+    return { error: true, message: 'Missing ' + mapping.isoTxPath + ' element' };
+  }
+
+  var warnings = [];
+  var fieldMap = [];
+  var dataLoss = [];
+
+  // Extract common values
+  var msgId = grpHdr ? getXmlText(grpHdr, 'MsgId') : '';
+  var endToEndId = getXmlPathText(txInf, 'PmtId/EndToEndId');
+  var instrId = getXmlPathText(txInf, 'PmtId/InstrId');
+
+  // Run transforms on each field
+  var mtTags = {};
+  var transformResults = {};
+  var mapFields = mapping.fields;
+
+  // Strip txPath prefix from isoPath for XML lookups (txInf is already the tx node)
+  var txPathPrefix = mapping.isoTxPath + '/';
+
+  for (var i = 0; i < mapFields.length; i++) {
+    var mf = mapFields[i];
+    var transformFn = TRANSFORMS[mf.transform] || TRANSFORMS.direct;
+    var isoVal = '';
+
+    // Resolve the relative path within txInf
+    var relPath = mf.isoPath;
+    if (relPath && relPath.indexOf(txPathPrefix) === 0) {
+      relPath = relPath.substring(txPathPrefix.length);
+    }
+
+    // Extract source value from XML
+    if (mf.transform === 'buildTag32A' || mf.transform === 'buildTag33B' ||
+        mf.transform === 'debtorToParty' || mf.transform === 'creditorToParty' ||
+        mf.transform === 'chargeBearerReverse' || mf.transform === 'buildStatementNumber') {
+      // Complex transforms need full txInf context
+      var result = transformFn(null, mf, txInf, mapping);
+      transformResults[mf.mtTag] = result;
+      if (result && result.tag !== undefined) {
+        mtTags[mf.mtTag] = result.tag;
+      } else if (typeof result === 'string') {
+        mtTags[mf.mtTag] = result;
+      } else {
+        mtTags[mf.mtTag] = result;
+      }
+    } else if (mf.transform === 'truncate16') {
+      isoVal = getXmlPathText(txInf, relPath);
+      // For pacs.009 → MT202 :20:, use MsgId or InstrId
+      if (mf.mtTag === '20' && mapping.targetType === 'MT202') {
+        isoVal = msgId || instrId || 'BRIDGE' + Date.now();
+      }
+      var truncated = (isoVal || '').substring(0, 16);
+      if (isoVal && isoVal.length > 16) {
+        warnings.push('Value truncated from ' + isoVal.length + ' to 16 characters for :' + mf.mtTag + ':');
+      }
+      mtTags[mf.mtTag] = truncated;
+      transformResults[mf.mtTag] = truncated;
+    } else if (mf.transform === 'splitLines35') {
+      isoVal = getXmlPathText(txInf, relPath);
+      var split = TRANSFORMS.splitLines35x6(isoVal);
+      mtTags[mf.mtTag] = split || '';
+      transformResults[mf.mtTag] = split || '';
+      if (mf.mtTag === '70' && isoVal && isoVal.length > 140) {
+        warnings.push('Remittance truncated from ' + isoVal.length + ' to 140 characters');
+      }
+    } else if (mf.transform === 'direct') {
+      isoVal = getXmlPathText(txInf, relPath);
+      mtTags[mf.mtTag] = isoVal;
+      transformResults[mf.mtTag] = isoVal;
+    } else {
+      isoVal = getXmlPathText(txInf, relPath);
+      mtTags[mf.mtTag] = isoVal;
+      transformResults[mf.mtTag] = isoVal;
+    }
+  }
+
+  // Build MT envelope
+  var senderBIC, receiverBIC;
+  var env = mapping.envelope;
+  if (env.block1Bic.from) {
+    senderBIC = getXmlPathText(txInf, env.block1Bic.from);
+    senderBIC = senderBIC ? senderBIC.substring(0, 8).padEnd(12, 'X') : env.block1Bic.fallback;
+  } else {
+    senderBIC = env.block1Bic.fallback;
+  }
+  if (env.block2Bic && env.block2Bic.from) {
+    receiverBIC = getXmlPathText(txInf, env.block2Bic.from);
+    receiverBIC = receiverBIC ? receiverBIC.substring(0, 8).padEnd(12, 'X') : env.block2Bic.fallback;
+  } else if (env.block2Bic) {
+    receiverBIC = env.block2Bic.fallback;
+  } else {
+    receiverBIC = 'BANKDE33XXXX';
+  }
+
+  // Assemble MT message
+  var mt = '{1:F01' + senderBIC + '0000000000}\n';
+  mt += '{2:I' + env.block2Type + receiverBIC + 'N}\n';
+  mt += '{4:\n';
+
+  // Emit tags in order, with special handling
+  var order = mapping.mtFieldOrder;
+  for (var i = 0; i < order.length; i++) {
+    var tag = order[i];
+    var val = mtTags[tag];
+
+    // Special: :23B: is always CRED for MT103
+    if (tag === '23B' && mapping.targetType === 'MT103') {
+      mt += ':23B:CRED\n';
+      continue;
+    }
+
+    // Special: :71A: for MT103 — extract tag value from result
+    if (tag === '71A' && transformResults['71A']) {
+      var chResult = transformResults['71A'];
+      mt += ':71A:' + (chResult.tag || chResult || 'SHA') + '\n';
+      continue;
+    }
+
+    if (val && (typeof val === 'string' ? val.trim() : true)) {
+      var tagVal = typeof val === 'string' ? val : (val.tag || '');
+      if (tagVal) mt += ':' + tag + ':' + tagVal + '\n';
+    }
+  }
+
+  mt += '-}';
+
+  // SLEV warning
+  if (mapping.targetType === 'MT103') {
+    var chrgBr = getXmlText(txInf, 'ChrgBr') || 'SHAR';
+    if (chrgBr === 'SLEV') {
+      warnings.push('SLEV (Service Level) has no exact MT equivalent — defaulted to SHA');
+    }
+  }
+
+  // Build field map for diagram
+  for (var i = 0; i < mapFields.length; i++) {
+    var mf = mapFields[i];
+    var srcVal = '';
+    var tgtVal = '';
+
+    // Get source value from XML
+    if (mf.transform === 'buildTag32A') {
+      var tr = transformResults[mf.mtTag];
+      srcVal = (tr ? tr.amount : '0') + ' ' + (tr ? tr.currency : 'USD');
+      tgtVal = tr ? tr.tag : '';
+    } else if (mf.transform === 'buildTag33B') {
+      var tr = transformResults[mf.mtTag];
+      srcVal = tr ? tr._display : '';
+      tgtVal = tr ? tr.tag : '';
+    } else if (mf.transform === 'debtorToParty') {
+      var tr = transformResults[mf.mtTag];
+      srcVal = tr ? tr.name : '';
+      tgtVal = tr ? (tr.tag || '').split('\n')[0] || '' : '';
+    } else if (mf.transform === 'creditorToParty') {
+      var tr = transformResults[mf.mtTag];
+      srcVal = tr ? tr.name : '';
+      tgtVal = tr ? (tr.tag || '').split('\n')[0] || '' : '';
+    } else if (mf.transform === 'chargeBearerReverse') {
+      var tr = transformResults[mf.mtTag];
+      srcVal = tr ? tr.isoValue : '';
+      tgtVal = tr ? tr._display : '';
+    } else {
+      var fmRelPath = mf.isoPath;
+      if (fmRelPath && fmRelPath.indexOf(txPathPrefix) === 0) fmRelPath = fmRelPath.substring(txPathPrefix.length);
+      srcVal = getXmlPathText(txInf, fmRelPath);
+      tgtVal = mtTags[mf.mtTag] || '';
+    }
+
+    if (srcVal || tgtVal) {
+      fieldMap.push({
+        sourceTag: mf.isoPath,
+        sourceName: mf.isoName,
+        sourceValue: srcVal,
+        targetPath: ':' + mf.mtTag + ':',
+        targetName: mf.mtName,
+        targetValue: tgtVal,
+        status: mf.status,
+        notes: mf.notes
+      });
+    }
+  }
+
+  // Auto-generated fields
+  var autoGen = mapping.autoGenerated;
+  for (var i = 0; i < autoGen.length; i++) {
+    fieldMap.push({
+      sourceTag: '—',
+      sourceName: '(auto-generated)',
+      sourceValue: '',
+      targetPath: autoGen[i].mtField,
+      targetName: autoGen[i].description,
+      targetValue: autoGen[i].mtField.indexOf('Block 1') !== -1 ? senderBIC :
+                   autoGen[i].mtField.indexOf('Block 2') !== -1 ? receiverBIC :
+                   (mtTags['23B'] || mtTags['20'] || ''),
+      status: 'auto',
+      notes: autoGen[i].description
+    });
+  }
+
+  // Data loss items
+  var lossItems = mapping.dataLoss || [];
+  for (var i = 0; i < lossItems.length; i++) {
+    var lossRelPath = lossItems[i].isoPath;
+    if (lossRelPath.indexOf(txPathPrefix) === 0) lossRelPath = lossRelPath.substring(txPathPrefix.length);
+    var lostVal = getXmlPathText(txInf, lossRelPath);
+    if (!lostVal && lossItems[i].isoPath === 'CdtTrfTxInf/PmtId/InstrId') lostVal = instrId;
+    if (lostVal) {
+      dataLoss.push({
+        path: lossItems[i].isoPath,
+        description: lossItems[i].description,
+        lostValue: lostVal
+      });
+      warnings.push(lossItems[i].description + (lostVal ? ' (value: ' + lostVal.substring(0, 40) + ')' : ''));
+    }
+  }
+
+  // Path warnings
+  var path = getTranslationPath(mapping.sourceType, mapping.targetType);
+  if (path) {
+    for (var i = 0; i < path.warnings.length; i++) {
+      if (warnings.indexOf(path.warnings[i]) === -1) {
+        warnings.push(path.warnings[i]);
+      }
+    }
+  }
+
+  // Build JSON
+  var jsonObj = _buildISOtoMTJson(mapping, txInf, mtTags, transformResults, senderBIC, receiverBIC, warnings, dataLoss);
+
+  return {
+    error: false,
+    mt: mt,
+    xml: mt,
+    json: jsonObj,
+    warnings: warnings,
+    fieldMap: fieldMap,
+    dataGaps: [],
+    dataLoss: dataLoss
+  };
+}
+
+// Statement-specific ISO → MT conversion (camt.053 → MT940)
+function _convertCamt053toMT940(ftf, mapping) {
+  var stmt = getXmlEl(ftf, 'Stmt');
   if (!stmt) {
     return { error: true, message: 'Missing Stmt element' };
   }
 
-  var mapping = MAPPING_CAMT053_MT940;
   var warnings = [];
   var fieldMap = [];
   var dataLoss = [];
@@ -1831,7 +1574,6 @@ function convertCamt053toMT940(xmlText) {
   var closAvail = findBalance('CLAV');
   var fwdAvailBals = findAllBalances('FWAV');
 
-  // Helper: format balance to MT tag value
   function formatBalance(bal) {
     if (!bal) return '';
     var dateParts = bal.date.split('-');
@@ -1865,7 +1607,6 @@ function convertCamt053toMT940(xmlText) {
     var rvslInd = getXmlText(ntry, 'RvslInd');
     if (rvslInd === 'true') dcMark = 'R' + dcMark;
 
-    // Build :61: line
     var valDateParts = valDt.split('-');
     var valDateStr = valDateParts.length === 3 ? valDateParts[0].substring(2) + valDateParts[1] + valDateParts[2] : '';
     var entryDateStr = '';
@@ -1909,7 +1650,6 @@ function convertCamt053toMT940(xmlText) {
   for (var i = 0; i < entries.length; i++) {
     mt += ':61:' + entries[i].tag61 + '\n';
     if (entries[i].tag86) {
-      // Split :86: into 6×65 char lines
       var info86 = entries[i].tag86.substring(0, 390);
       var lines86 = '';
       for (var j = 0; j < info86.length; j += 65) {
@@ -1974,9 +1714,8 @@ function convertCamt053toMT940(xmlText) {
   }
 
   // Data loss
-  var lossItems = mapping.dataLoss;
+  var lossItems = mapping.dataLoss || [];
   for (var i = 0; i < lossItems.length; i++) {
-    // Check if values exist in the source XML for these paths
     var hasLoss = false;
     if (lossItems[i].isoPath === 'Stmt/FrToDt') hasLoss = !!getXmlEl(stmt, 'FrToDt');
     else if (lossItems[i].isoPath === 'Stmt/Ntry/Sts/Cd') hasLoss = ntryNodes.length > 0;
@@ -1988,7 +1727,7 @@ function convertCamt053toMT940(xmlText) {
     }
   }
 
-  var path = getTranslationPath('camt.053', 'MT940');
+  var path = getTranslationPath(mapping.sourceType, mapping.targetType);
   if (path) warnings = path.warnings.slice();
 
   // Build JSON
@@ -2013,8 +1752,8 @@ function convertCamt053toMT940(xmlText) {
     closingBalance: closeBal,
     entries: jsonEntries,
     _translation: {
-      source: 'camt.053',
-      target: 'MT940',
+      source: mapping.sourceType,
+      target: mapping.targetType,
       lossless: false,
       warnings: warnings,
       dataLoss: dataLoss.map(function(d) { return d.path + ': ' + d.description; })
@@ -2033,6 +1772,75 @@ function convertCamt053toMT940(xmlText) {
   };
 }
 
+// Helper: build JSON for ISO → MT payment conversions
+function _buildISOtoMTJson(mapping, txInf, mtTags, transformResults, senderBIC, receiverBIC, warnings, dataLoss) {
+  if (mapping.targetType === 'MT103') {
+    var tr32A = transformResults['32A'] || {};
+    var trDbtr = transformResults['50K'] || {};
+    var trCdtr = transformResults['59'] || {};
+    var jsonObj = {
+      messageType: 'MT103',
+      transactionReference: mtTags['20'] || '',
+      bankOperationCode: 'CRED',
+      valueDateCurrencyAmount: {
+        date: tr32A.settleDate || '',
+        currency: tr32A.currency || 'USD',
+        amount: parseFloat(tr32A.amount || '0')
+      },
+      chargeBearer: mtTags['71A'] || 'SHA',
+      orderingCustomer: {
+        account: trDbtr.account || '',
+        name: trDbtr.name || '',
+        address: trDbtr.address || []
+      },
+      beneficiary: {
+        account: trCdtr.account || '',
+        name: trCdtr.name || '',
+        address: trCdtr.address || []
+      },
+      remittanceInformation: getXmlPathText(txInf, 'RmtInf/Ustrd'),
+      _translation: {
+        source: mapping.sourceType,
+        target: mapping.targetType,
+        lossless: false,
+        warnings: warnings,
+        dataLoss: dataLoss.map(function(d) { return d.path + ': ' + d.description; })
+      }
+    };
+    var debtorAgentBIC = getXmlPathText(txInf, 'DbtrAgt/FinInstnId/BICFI');
+    var creditorAgentBIC = getXmlPathText(txInf, 'CdtrAgt/FinInstnId/BICFI');
+    if (debtorAgentBIC) jsonObj.orderingInstitution = debtorAgentBIC;
+    if (creditorAgentBIC) jsonObj.accountWithInstitution = creditorAgentBIC;
+    return jsonObj;
+  } else if (mapping.targetType === 'MT202') {
+    var tr32A = transformResults['32A'] || {};
+    var jsonObj = {
+      messageType: 'MT202',
+      transactionReference: mtTags['20'] || '',
+      relatedReference: mtTags['21'] || '',
+      valueDateCurrencyAmount: {
+        date: tr32A.settleDate || '',
+        currency: tr32A.currency || 'USD',
+        amount: parseFloat(tr32A.amount || '0')
+      },
+      beneficiaryInstitution: getXmlPathText(txInf, 'Cdtr/FinInstnId/BICFI'),
+      _translation: {
+        source: mapping.sourceType,
+        target: mapping.targetType,
+        lossless: false,
+        warnings: warnings,
+        dataLoss: dataLoss.map(function(d) { return d.path + ': ' + d.description; })
+      }
+    };
+    var debtorBIC = getXmlPathText(txInf, 'Dbtr/FinInstnId/BICFI');
+    var creditorAgentBIC = getXmlPathText(txInf, 'CdtrAgt/FinInstnId/BICFI');
+    if (debtorBIC) jsonObj.orderingInstitution = debtorBIC;
+    if (creditorAgentBIC) jsonObj.accountWithInstitution = creditorAgentBIC;
+    return jsonObj;
+  }
+  return { messageType: mapping.targetType };
+}
+
 // ─── MAIN TRANSLATION ORCHESTRATOR ───
 function translate() {
   var fromVal = document.getElementById('from-select').value;
@@ -2048,22 +1856,23 @@ function translate() {
     return;
   }
 
-  var result;
-  if (fromVal === 'MT103' && toVal === 'pacs.008') {
-    result = convertMTtoISO(rawText);
-  } else if (fromVal === 'pacs.008' && toVal === 'MT103') {
-    result = convertISOtoMT(rawText);
-  } else if (fromVal === 'MT202' && toVal === 'pacs.009') {
-    result = convertMT202toPacs009(rawText);
-  } else if (fromVal === 'pacs.009' && toVal === 'MT202') {
-    result = convertPacs009toMT202(rawText);
-  } else if (fromVal === 'MT940' && toVal === 'camt.053') {
-    result = convertMT940toCamt053(rawText);
-  } else if (fromVal === 'camt.053' && toVal === 'MT940') {
-    result = convertCamt053toMT940(rawText);
-  } else {
+  var path = getTranslationPath(fromVal, toVal);
+  if (!path) {
     showToast('Translation path ' + fromVal + ' → ' + toVal + ' not yet supported', true);
     return;
+  }
+
+  var mapping = getMapping(path.mappingRef);
+  if (!mapping) {
+    showToast('Mapping configuration not found: ' + path.mappingRef, true);
+    return;
+  }
+
+  var result;
+  if (mapping.direction === 'mt-to-iso') {
+    result = convertMTtoISO(rawText, mapping);
+  } else {
+    result = convertISOtoMT(rawText, mapping);
   }
 
   if (result.error) {
@@ -2072,7 +1881,7 @@ function translate() {
   }
 
   currentOutput = result;
-  currentView = (fromVal === 'MT103') ? 'xml' : 'xml'; // default to XML view
+  currentView = 'xml';
   renderOutput(result);
   renderMappingDiagram(result);
 

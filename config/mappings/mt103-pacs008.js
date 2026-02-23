@@ -157,5 +157,28 @@ var MAPPING_MT103_PACS008 = {
 
   valueMaps: {
     chargeBearer: { 'SHA': 'SHAR', 'OUR': 'DEBT', 'BEN': 'CRED' }
-  }
+  },
+
+  // Engine metadata
+  direction: 'mt-to-iso',
+  sourceType: 'MT103',
+  targetType: 'pacs.008',
+
+  txElement: 'CdtTrfTxInf',
+
+  fixedElements: [
+    { isoPath: 'GrpHdr/MsgId', value: '$MSGID' },
+    { isoPath: 'GrpHdr/CreDtTm', value: '$NOW' },
+    { isoPath: 'GrpHdr/NbOfTxs', value: '1' },
+    { isoPath: 'GrpHdr/SttlmInf/SttlmMtd', value: '$STTLM' }
+  ],
+
+  attributes: {
+    'CdtTrfTxInf/IntrBkSttlmAmt': { attr: 'Ccy', from: 'currency' },
+    'CdtTrfTxInf/InstdAmt': { attr: 'Ccy', from: 'currency' }
+  },
+
+  elementOrder: [
+    'GrpHdr', 'CdtTrfTxInf'
+  ]
 };

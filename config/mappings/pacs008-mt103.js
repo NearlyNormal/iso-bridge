@@ -121,5 +121,21 @@ var MAPPING_PACS008_MT103 = {
 
   valueMaps: {
     chargeBearerReverse: { 'SHAR': 'SHA', 'DEBT': 'OUR', 'CRED': 'BEN', 'SLEV': 'SHA' }
-  }
+  },
+
+  // Engine metadata
+  direction: 'iso-to-mt',
+  sourceType: 'pacs.008',
+  targetType: 'MT103',
+
+  isoRootElement: 'FIToFICstmrCdtTrf',
+  isoTxPath: 'CdtTrfTxInf',
+
+  envelope: {
+    block1Bic: { from: 'DbtrAgt/FinInstnId/BICFI', fallback: 'BANKUS33XXXX' },
+    block2Type: '103',
+    block2Bic: { from: 'CdtrAgt/FinInstnId/BICFI', fallback: 'BANKDE33XXXX' }
+  },
+
+  mtFieldOrder: ['20', '23B', '32A', '33B', '50K', '52A', '53A', '56A', '57A', '59', '70', '71A', '72']
 };

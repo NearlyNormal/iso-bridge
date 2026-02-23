@@ -107,5 +107,27 @@ var MAPPING_MT202_PACS009 = {
     { isoPath: 'CdtTrfTxInf/Dbtr/FinInstnId/LEI', description: 'LEI not available in MT format' },
     { isoPath: 'CdtTrfTxInf/Cdtr/FinInstnId/LEI', description: 'LEI not available in MT format' },
     { isoPath: 'CdtTrfTxInf/Purp/Cd', description: 'Purpose code not available in MT202' }
+  ],
+
+  // Engine metadata
+  direction: 'mt-to-iso',
+  sourceType: 'MT202',
+  targetType: 'pacs.009',
+
+  txElement: 'CdtTrfTxInf',
+
+  fixedElements: [
+    { isoPath: 'GrpHdr/MsgId', value: '$MSGID' },
+    { isoPath: 'GrpHdr/CreDtTm', value: '$NOW' },
+    { isoPath: 'GrpHdr/NbOfTxs', value: '1' },
+    { isoPath: 'GrpHdr/SttlmInf/SttlmMtd', value: '$STTLM' }
+  ],
+
+  attributes: {
+    'CdtTrfTxInf/IntrBkSttlmAmt': { attr: 'Ccy', from: 'currency' }
+  },
+
+  elementOrder: [
+    'GrpHdr', 'CdtTrfTxInf'
   ]
 };

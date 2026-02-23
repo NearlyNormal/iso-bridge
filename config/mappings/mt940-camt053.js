@@ -99,5 +99,31 @@ var MAPPING_MT940_CAMT053 = {
     { isoPath: 'Stmt/Ntry/NtryDtls/TxDtls/RltdAgts', description: 'Agent BICs not in MT940 :61:' },
     { isoPath: 'Stmt/Ntry/BkTxCd/Domn', description: 'Structured domain/family codes require SWIFT code mapping' },
     { isoPath: 'Stmt/Ntry/NtryDtls/TxDtls/RmtInf/Strd', description: 'Structured remittance not in MT940' }
+  ],
+
+  // Engine metadata
+  direction: 'mt-to-iso',
+  sourceType: 'MT940',
+  targetType: 'camt.053',
+
+  txElement: 'Stmt',
+  isStatement: true,
+
+  fixedElements: [
+    { isoPath: 'GrpHdr/MsgId', value: '$MSGID' },
+    { isoPath: 'GrpHdr/CreDtTm', value: '$NOW' }
+  ],
+
+  repeatingSection: {
+    mtTag: '61',
+    pairedTag: '86',
+    isoParent: 'Stmt/Ntry'
+  },
+
+  balanceMappings: [
+    { mtTag: '60F', balType: 'OPBD' },
+    { mtTag: '62F', balType: 'CLBD' },
+    { mtTag: '64', balType: 'CLAV' },
+    { mtTag: '65', balType: 'FWAV' }
   ]
 };

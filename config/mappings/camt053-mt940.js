@@ -100,5 +100,29 @@ var MAPPING_CAMT053_MT940 = {
     { isoPath: 'SplmtryData', description: 'Supplementary data has no MT equivalent — dropped' }
   ],
 
-  valueMaps: {}
+  valueMaps: {},
+
+  // Engine metadata
+  direction: 'iso-to-mt',
+  sourceType: 'camt.053',
+  targetType: 'MT940',
+  isStatement: true,
+
+  isoRootElement: 'BkToCstmrStmt',
+  isoTxPath: 'Stmt',
+
+  envelope: {
+    block1Bic: { fixed: 'BANKUS33XXXX' },
+    block2Type: '940',
+    block2Style: 'output'
+  },
+
+  mtFieldOrder: ['20', '25', '28C', '60F', '61', '86', '62F', '64', '65'],
+
+  balanceMappings: [
+    { isoType: 'OPBD', mtTag: '60F' },
+    { isoType: 'CLBD', mtTag: '62F' },
+    { isoType: 'CLAV', mtTag: '64' },
+    { isoType: 'FWAV', mtTag: '65' }
+  ]
 };
