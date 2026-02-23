@@ -38,6 +38,13 @@
         </div>
       </div>
       <input type="hidden" id="country-select" value="">
+      <div id="native-iso-banner" class="uk-flex uk-flex-middle" style="display:none; margin-left:16px; gap:10px">
+        <img src="assets/validate.svg" alt="" style="width:28px; height:28px">
+        <div>
+          <div id="native-iso-text" style="font-family:var(--font-mono); font-size:var(--size-code); color:var(--accent-dark)"></div>
+          <div style="font-family:var(--font-mono); font-size:var(--size-code); color:var(--accent-dark)">No translation needed</div>
+        </div>
+      </div>
     </div>
     <div class="uk-navbar-right uk-margin-right">
       <button class="validate-btn" id="translate-btn">
@@ -208,7 +215,7 @@
         <p><strong>Config-driven architecture.</strong> All country data, translation paths, and field-by-field mappings live in plain JavaScript configuration files. Adding a new country or a new format pair means editing a config file, never touching the engine. The configs are human-readable documentation in their own right.</p>
 
         <div class="glossary-coverage">
-          <p><strong>v1.0 coverage:</strong> MT103 ↔ pacs.008 translation across US, Canada, and Brazil. More formats and countries in v1.1.</p>
+          <p><strong>v1.0 coverage:</strong> MT103 ↔ pacs.008, MT202 ↔ pacs.009, MT940 ↔ camt.053 translation across US, Canada, and Brazil.</p>
         </div>
 
         <div class="uk-margin-medium-top">
@@ -228,6 +235,10 @@
   <script src="config/translations.js"></script>
   <script src="config/mappings/mt103-pacs008.js"></script>
   <script src="config/mappings/pacs008-mt103.js"></script>
+  <script src="config/mappings/mt202-pacs009.js"></script>
+  <script src="config/mappings/pacs009-mt202.js"></script>
+  <script src="config/mappings/mt940-camt053.js"></script>
+  <script src="config/mappings/camt053-mt940.js"></script>
   <script src="assets/mt-parser.js"></script>
   <script src="assets/app.js"></script>
 </body>

@@ -35,6 +35,10 @@ function getMapping(ref) {
   // Resolve global variable by name
   if (ref === 'MAPPING_MT103_PACS008') return MAPPING_MT103_PACS008;
   if (ref === 'MAPPING_PACS008_MT103') return MAPPING_PACS008_MT103;
+  if (ref === 'MAPPING_MT202_PACS009') return MAPPING_MT202_PACS009;
+  if (ref === 'MAPPING_PACS009_MT202') return MAPPING_PACS009_MT202;
+  if (ref === 'MAPPING_MT940_CAMT053') return MAPPING_MT940_CAMT053;
+  if (ref === 'MAPPING_CAMT053_MT940') return MAPPING_CAMT053_MT940;
   return null;
 }
 
@@ -44,6 +48,7 @@ var FORMAT_LABELS = {
   'MT202': 'MT202 — Financial Institution Transfer',
   'MT940': 'MT940 — Customer Statement',
   'pacs.008': 'pacs.008 — FI to FI Customer Credit Transfer',
+  'pacs.009': 'pacs.009 — FI to FI Financial Institution Credit Transfer',
   'pain.001': 'pain.001 — Customer Credit Transfer Initiation',
   'camt.053': 'camt.053 — Bank to Customer Statement'
 };
@@ -261,6 +266,7 @@ function onCountryChange() {
   document.getElementById('from-grid').innerHTML = '';
   document.getElementById('to-grid').innerHTML = '';
   hideWarning();
+  hideNativeISOBanner();
 
   if (!code) {
     fromBtn.disabled = true;
@@ -268,13 +274,30 @@ function onCountryChange() {
   }
 
   var formats = getFormatsForCountry(code);
-  // Only show formats that have at least one translation path (as source)
+  // Only show formats that have at least one translation path with a target also in this country
   var availableFrom = [];
   for (var i = 0; i < formats.length; i++) {
-    if (getValidTargets(formats[i]).length > 0) {
+    var targets = getValidTargets(formats[i]);
+    var hasCountryTarget = false;
+    for (var j = 0; j < targets.length; j++) {
+      if (formats.indexOf(targets[j]) !== -1) {
+        hasCountryTarget = true;
+        break;
+      }
+    }
+    if (hasCountryTarget) {
       availableFrom.push(formats[i]);
     }
   }
+
+  if (availableFrom.length === 0) {
+    fromBtn.disabled = true;
+    var c = COUNTRIES[code];
+    showNativeISOBanner(c.name);
+    return;
+  }
+
+  hideNativeISOBanner();
 
   buildFormatGrid('from-grid', availableFrom, function(fmt) {
     fromInput.value = fmt;
@@ -365,6 +388,21 @@ function showWarning(path) {
 
 function hideWarning() {
   document.getElementById('translation-warning').style.display = 'none';
+}
+
+function showNativeISOBanner(countryName) {
+  var el = document.getElementById('native-iso-banner');
+  if (el) {
+    document.getElementById('native-iso-text').textContent = countryName + ' is already ISO 20022-native';
+    el.style.display = '';
+  }
+  document.querySelector('.format-bar').classList.add('format-bar-disabled');
+}
+
+function hideNativeISOBanner() {
+  var el = document.getElementById('native-iso-banner');
+  if (el) el.style.display = 'none';
+  document.querySelector('.format-bar').classList.remove('format-bar-disabled');
 }
 
 function updateSourceTitle() {
@@ -1098,6 +1136,903 @@ function convertISOtoMT(xmlText) {
   };
 }
 
+// ─── MT202 → pacs.009 CONVERSION ───
+function convertMT202toPacs009(rawText) {
+  var parsed = parseMT(rawText);
+  if (!parsed.valid && parsed.errors.length > 0) {
+    return { error: true, message: 'MT parse errors:\n' + parsed.errors.map(function(e) { return '• ' + e.message; }).join('\n') };
+  }
+
+  var ext = parsed.extracted;
+  var fields = parsed.fields;
+  var mapping = MAPPING_MT202_PACS009;
+  var warnings = [];
+  var fieldMap = [];
+
+  function getField(tag) { return fields[tag] || null; }
+  function getBIC(tag) {
+    var f = getField(tag);
+    if (!f) return '';
+    return (f.decoded && typeof f.decoded === 'string') ? f.decoded : f.rawValue.trim();
+  }
+
+  var txRef = ext.transactionReference || 'NOTPROVIDED';
+  var relRef = ext.relatedReference || txRef;
+  var endToEndId = relRef.substring(0, 35);
+  var msgId = 'BRIDGE-' + new Date().toISOString().substring(0, 10).replace(/-/g, '') + '-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+  var instrId = 'INSTR-' + new Date().toISOString().substring(0, 10).replace(/-/g, '') + '-' + Math.random().toString(36).substring(2, 6).toUpperCase();
+  var creDtTm = new Date().toISOString().substring(0, 19);
+  var sttlmMtd = fields['53A'] ? 'COVE' : 'CLRG';
+
+  var amount = ext.amount ? ext.amount.toFixed(2) : '0.00';
+  var currency = ext.currency || 'USD';
+  var valueDate = ext.valueDate || new Date().toISOString().substring(0, 10);
+
+  var debtorBIC = getBIC('52A');
+  var senderCorr = getBIC('53A');
+  var receiverCorr = getBIC('54A');
+  var intermediary = getBIC('56A');
+  var creditorAgent = getBIC('57A');
+  var beneficiaryInst = getBIC('58A');
+
+  var instrForAgent = ext.senderToReceiverInfo || '';
+  if (typeof instrForAgent !== 'string') instrForAgent = '';
+  instrForAgent = instrForAgent.replace(/\n/g, ' ');
+
+  // Build XML
+  var xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
+  xml += '<Document xmlns="' + mapping.isoNamespace + '">\n';
+  xml += '  <' + mapping.rootElement + '>\n';
+
+  xml += '    <GrpHdr>\n';
+  xml += '      <MsgId>' + escXml(msgId) + '</MsgId>\n';
+  xml += '      <CreDtTm>' + creDtTm + '</CreDtTm>\n';
+  xml += '      <NbOfTxs>1</NbOfTxs>\n';
+  xml += '      <SttlmInf><SttlmMtd>' + sttlmMtd + '</SttlmMtd></SttlmInf>\n';
+  xml += '    </GrpHdr>\n';
+
+  xml += '    <CdtTrfTxInf>\n';
+  xml += '      <PmtId>\n';
+  xml += '        <InstrId>' + escXml(instrId) + '</InstrId>\n';
+  xml += '        <EndToEndId>' + escXml(endToEndId) + '</EndToEndId>\n';
+  xml += '      </PmtId>\n';
+  xml += '      <IntrBkSttlmAmt Ccy="' + escXml(currency) + '">' + amount + '</IntrBkSttlmAmt>\n';
+  xml += '      <IntrBkSttlmDt>' + valueDate + '</IntrBkSttlmDt>\n';
+
+  if (intermediary) {
+    xml += '      <IntrmyAgt1>\n';
+    xml += '        <FinInstnId><BICFI>' + escXml(intermediary) + '</BICFI></FinInstnId>\n';
+    xml += '      </IntrmyAgt1>\n';
+  }
+
+  if (senderCorr) {
+    xml += '      <InstgRmbrsmntAgt>\n';
+    xml += '        <FinInstnId><BICFI>' + escXml(senderCorr) + '</BICFI></FinInstnId>\n';
+    xml += '      </InstgRmbrsmntAgt>\n';
+  }
+
+  if (receiverCorr) {
+    xml += '      <InstdRmbrsmntAgt>\n';
+    xml += '        <FinInstnId><BICFI>' + escXml(receiverCorr) + '</BICFI></FinInstnId>\n';
+    xml += '      </InstdRmbrsmntAgt>\n';
+  }
+
+  if (debtorBIC) {
+    xml += '      <Dbtr>\n';
+    xml += '        <FinInstnId><BICFI>' + escXml(debtorBIC) + '</BICFI></FinInstnId>\n';
+    xml += '      </Dbtr>\n';
+  }
+
+  if (creditorAgent) {
+    xml += '      <CdtrAgt>\n';
+    xml += '        <FinInstnId><BICFI>' + escXml(creditorAgent) + '</BICFI></FinInstnId>\n';
+    xml += '      </CdtrAgt>\n';
+  }
+
+  xml += '      <Cdtr>\n';
+  xml += '        <FinInstnId><BICFI>' + escXml(beneficiaryInst) + '</BICFI></FinInstnId>\n';
+  xml += '      </Cdtr>\n';
+
+  if (instrForAgent) {
+    xml += '      <InstrForNxtAgt>\n';
+    xml += '        <InstrInf>' + escXml(instrForAgent) + '</InstrInf>\n';
+    xml += '      </InstrForNxtAgt>\n';
+  }
+
+  xml += '    </CdtTrfTxInf>\n';
+  xml += '  </' + mapping.rootElement + '>\n';
+  xml += '</Document>';
+
+  // Build field map
+  var mapFields = mapping.fields;
+  for (var i = 0; i < mapFields.length; i++) {
+    var mf = mapFields[i];
+    var srcField = getField(mf.mtTag);
+    var srcVal = srcField ? srcField.rawValue : '';
+    var tgtVal = '';
+
+    if (mf.mtTag === '20') tgtVal = msgId;
+    else if (mf.mtTag === '21') tgtVal = endToEndId;
+    else if (mf.mtTag === '32A') tgtVal = amount + ' ' + currency + ' (' + valueDate + ')';
+    else if (mf.mtTag === '52A') tgtVal = debtorBIC;
+    else if (mf.mtTag === '53A') tgtVal = senderCorr;
+    else if (mf.mtTag === '54A') tgtVal = receiverCorr;
+    else if (mf.mtTag === '56A') tgtVal = intermediary;
+    else if (mf.mtTag === '57A') tgtVal = creditorAgent;
+    else if (mf.mtTag === '58A') tgtVal = beneficiaryInst;
+    else if (mf.mtTag === '72') tgtVal = instrForAgent;
+
+    if (srcVal || mf.status !== 'gap') {
+      fieldMap.push({
+        sourceTag: ':' + mf.mtTag + ':',
+        sourceName: mf.mtName,
+        sourceValue: srcVal,
+        targetPath: mf.isoPath || '(dropped)',
+        targetName: mf.isoName || '(no equivalent)',
+        targetValue: tgtVal,
+        status: srcField ? mf.status : 'gap',
+        notes: mf.notes
+      });
+    }
+  }
+
+  // Auto-generated fields
+  var autoGen = mapping.autoGenerated;
+  for (var i = 0; i < autoGen.length; i++) {
+    fieldMap.push({
+      sourceTag: '—',
+      sourceName: '(auto-generated)',
+      sourceValue: '',
+      targetPath: autoGen[i].isoPath,
+      targetName: autoGen[i].description,
+      targetValue: autoGen[i].isoPath === 'GrpHdr/MsgId' ? msgId :
+                   autoGen[i].isoPath === 'GrpHdr/CreDtTm' ? creDtTm :
+                   autoGen[i].isoPath === 'GrpHdr/NbOfTxs' ? '1' :
+                   autoGen[i].isoPath.indexOf('SttlmMtd') !== -1 ? sttlmMtd :
+                   instrId,
+      status: 'auto',
+      notes: autoGen[i].description
+    });
+  }
+
+  var path = getTranslationPath('MT202', 'pacs.009');
+  if (path) warnings = path.warnings.slice();
+
+  var jsonObj = {
+    messageType: 'pacs.009.001.08',
+    groupHeader: {
+      messageId: msgId,
+      creationDateTime: creDtTm,
+      numberOfTransactions: 1,
+      settlementMethod: sttlmMtd
+    },
+    creditTransferTransaction: {
+      paymentId: { instructionId: instrId, endToEndId: endToEndId },
+      interbankSettlementAmount: { currency: currency, amount: parseFloat(amount) },
+      interbankSettlementDate: valueDate,
+      debtor: debtorBIC,
+      creditorAgent: creditorAgent,
+      creditor: beneficiaryInst
+    },
+    _translation: {
+      source: 'MT202',
+      target: 'pacs.009',
+      lossless: false,
+      warnings: warnings,
+      dataGaps: mapping.dataGaps.map(function(g) { return g.isoPath + ': ' + g.description; })
+    }
+  };
+
+  if (senderCorr) jsonObj.creditTransferTransaction.instructingReimbursementAgent = senderCorr;
+  if (receiverCorr) jsonObj.creditTransferTransaction.instructedReimbursementAgent = receiverCorr;
+  if (intermediary) jsonObj.creditTransferTransaction.intermediaryAgent = intermediary;
+  if (instrForAgent) jsonObj.creditTransferTransaction.instructionForNextAgent = instrForAgent;
+
+  return {
+    error: false,
+    xml: xml,
+    json: jsonObj,
+    warnings: warnings,
+    fieldMap: fieldMap,
+    dataGaps: mapping.dataGaps,
+    dataLoss: []
+  };
+}
+
+// ─── pacs.009 → MT202 CONVERSION ───
+function convertPacs009toMT202(xmlText) {
+  var parser = new DOMParser();
+  var doc = parser.parseFromString(xmlText, 'text/xml');
+
+  var parseError = doc.querySelector('parsererror');
+  if (parseError) {
+    return { error: true, message: 'XML parse error: ' + parseError.textContent.substring(0, 200) };
+  }
+
+  var root = doc.documentElement;
+  var ftf = getXmlEl(root, 'FICdtTrf');
+  if (!ftf) {
+    return { error: true, message: 'Not a pacs.009 message — missing FICdtTrf element' };
+  }
+
+  var grpHdr = getXmlEl(ftf, 'GrpHdr');
+  var txInf = getXmlEl(ftf, 'CdtTrfTxInf');
+  if (!txInf) {
+    return { error: true, message: 'Missing CdtTrfTxInf element' };
+  }
+
+  var mapping = MAPPING_PACS009_MT202;
+  var warnings = [];
+  var fieldMap = [];
+  var dataLoss = [];
+
+  var msgId = grpHdr ? getXmlText(grpHdr, 'MsgId') : '';
+  var endToEndId = getXmlPathText(txInf, 'PmtId/EndToEndId');
+  var instrId = getXmlPathText(txInf, 'PmtId/InstrId');
+  var amountEl = getXmlEl(txInf, 'IntrBkSttlmAmt');
+  var amount = amountEl ? amountEl.textContent : '0';
+  var currency = amountEl ? (amountEl.getAttribute('Ccy') || 'USD') : 'USD';
+  var settleDate = getXmlText(txInf, 'IntrBkSttlmDt') || new Date().toISOString().substring(0, 10);
+
+  var debtorBIC = getXmlPathText(txInf, 'Dbtr/FinInstnId/BICFI');
+  var senderCorr = getXmlPathText(txInf, 'InstgRmbrsmntAgt/FinInstnId/BICFI');
+  var receiverCorr = getXmlPathText(txInf, 'InstdRmbrsmntAgt/FinInstnId/BICFI');
+  var intermediary = getXmlPathText(txInf, 'IntrmyAgt1/FinInstnId/BICFI');
+  var creditorAgent = getXmlPathText(txInf, 'CdtrAgt/FinInstnId/BICFI');
+  var creditorBIC = getXmlPathText(txInf, 'Cdtr/FinInstnId/BICFI');
+  var instrInfo = getXmlPathText(txInf, 'InstrForNxtAgt/InstrInf');
+
+  // Build MT fields
+  var tag20 = (msgId || instrId || 'BRIDGE' + Date.now()).substring(0, 16);
+  var tag21 = endToEndId.substring(0, 16);
+  if (endToEndId.length > 16) {
+    warnings.push('EndToEndId truncated from ' + endToEndId.length + ' to 16 characters for :21:');
+  }
+
+  var dateParts = settleDate.split('-');
+  var tag32ADate = dateParts[0].substring(2) + dateParts[1] + dateParts[2];
+  var tag32AAmount = parseFloat(amount).toFixed(2).replace('.', ',');
+  var tag32A = tag32ADate + currency + tag32AAmount;
+
+  var tag72 = '';
+  if (instrInfo) {
+    var inf = instrInfo.substring(0, 210);
+    for (var i = 0; i < inf.length; i += 35) {
+      if (tag72) tag72 += '\n';
+      tag72 += inf.substring(i, i + 35);
+    }
+  }
+
+  // Build MT message
+  var senderBICEnv = debtorBIC ? debtorBIC.substring(0, 8).padEnd(12, 'X') : 'BANKUS33XXXX';
+  var receiverBICEnv = creditorBIC ? creditorBIC.substring(0, 8).padEnd(12, 'X') : 'BANKDE33XXXX';
+
+  var mt = '{1:F01' + senderBICEnv + '0000000000}\n';
+  mt += '{2:I202' + receiverBICEnv + 'N}\n';
+  mt += '{4:\n';
+  mt += ':20:' + tag20 + '\n';
+  mt += ':21:' + tag21 + '\n';
+  mt += ':32A:' + tag32A + '\n';
+  if (debtorBIC) mt += ':52A:' + debtorBIC + '\n';
+  if (senderCorr) mt += ':53A:' + senderCorr + '\n';
+  if (receiverCorr) mt += ':54A:' + receiverCorr + '\n';
+  if (intermediary) mt += ':56A:' + intermediary + '\n';
+  if (creditorAgent) mt += ':57A:' + creditorAgent + '\n';
+  mt += ':58A:' + creditorBIC + '\n';
+  if (tag72) mt += ':72:' + tag72 + '\n';
+  mt += '-}';
+
+  // Build field map
+  var mapFields = mapping.fields;
+  for (var i = 0; i < mapFields.length; i++) {
+    var mf = mapFields[i];
+    var srcVal = '';
+    var tgtVal = '';
+
+    if (mf.isoPath === 'CdtTrfTxInf/PmtId/EndToEndId') { srcVal = endToEndId; tgtVal = tag21; }
+    else if (mf.isoPath === 'CdtTrfTxInf/IntrBkSttlmAmt') { srcVal = amount + ' ' + currency; tgtVal = tag32A; }
+    else if (mf.isoPath === 'CdtTrfTxInf/Dbtr/FinInstnId/BICFI') { srcVal = debtorBIC; tgtVal = debtorBIC; }
+    else if (mf.isoPath === 'CdtTrfTxInf/InstgRmbrsmntAgt/FinInstnId/BICFI') { srcVal = senderCorr; tgtVal = senderCorr; }
+    else if (mf.isoPath === 'CdtTrfTxInf/InstdRmbrsmntAgt/FinInstnId/BICFI') { srcVal = receiverCorr; tgtVal = receiverCorr; }
+    else if (mf.isoPath === 'CdtTrfTxInf/IntrmyAgt1/FinInstnId/BICFI') { srcVal = intermediary; tgtVal = intermediary; }
+    else if (mf.isoPath === 'CdtTrfTxInf/CdtrAgt/FinInstnId/BICFI') { srcVal = creditorAgent; tgtVal = creditorAgent; }
+    else if (mf.isoPath === 'CdtTrfTxInf/Cdtr/FinInstnId/BICFI') { srcVal = creditorBIC; tgtVal = creditorBIC; }
+    else if (mf.isoPath === 'CdtTrfTxInf/InstrForNxtAgt/InstrInf') { srcVal = instrInfo; tgtVal = tag72; }
+
+    if (srcVal || tgtVal) {
+      fieldMap.push({
+        sourceTag: mf.isoPath,
+        sourceName: mf.isoName,
+        sourceValue: srcVal,
+        targetPath: ':' + mf.mtTag + ':',
+        targetName: mf.mtName,
+        targetValue: tgtVal,
+        status: mf.status,
+        notes: mf.notes
+      });
+    }
+  }
+
+  // Auto-generated
+  var autoGen = mapping.autoGenerated;
+  for (var i = 0; i < autoGen.length; i++) {
+    fieldMap.push({
+      sourceTag: '—',
+      sourceName: '(auto-generated)',
+      sourceValue: '',
+      targetPath: autoGen[i].mtField,
+      targetName: autoGen[i].description,
+      targetValue: autoGen[i].mtField.indexOf('Block 1') !== -1 ? senderBICEnv :
+                   autoGen[i].mtField.indexOf('Block 2') !== -1 ? receiverBICEnv :
+                   tag20,
+      status: 'auto',
+      notes: autoGen[i].description
+    });
+  }
+
+  // Data loss
+  var lossItems = mapping.dataLoss;
+  for (var i = 0; i < lossItems.length; i++) {
+    var lostVal = getXmlPathText(txInf, lossItems[i].isoPath);
+    if (!lostVal && lossItems[i].isoPath === 'CdtTrfTxInf/PmtId/InstrId') lostVal = instrId;
+    if (lostVal) {
+      dataLoss.push({ path: lossItems[i].isoPath, description: lossItems[i].description, lostValue: lostVal });
+      warnings.push(lossItems[i].description + (lostVal ? ' (value: ' + lostVal.substring(0, 40) + ')' : ''));
+    }
+  }
+
+  var path = getTranslationPath('pacs.009', 'MT202');
+  if (path) {
+    for (var i = 0; i < path.warnings.length; i++) {
+      if (warnings.indexOf(path.warnings[i]) === -1) warnings.push(path.warnings[i]);
+    }
+  }
+
+  var jsonObj = {
+    messageType: 'MT202',
+    transactionReference: tag20,
+    relatedReference: tag21,
+    valueDateCurrencyAmount: { date: settleDate, currency: currency, amount: parseFloat(amount) },
+    beneficiaryInstitution: creditorBIC,
+    _translation: {
+      source: 'pacs.009',
+      target: 'MT202',
+      lossless: false,
+      warnings: warnings,
+      dataLoss: dataLoss.map(function(d) { return d.path + ': ' + d.description; })
+    }
+  };
+
+  if (debtorBIC) jsonObj.orderingInstitution = debtorBIC;
+  if (creditorAgent) jsonObj.accountWithInstitution = creditorAgent;
+
+  return {
+    error: false,
+    mt: mt,
+    xml: mt,
+    json: jsonObj,
+    warnings: warnings,
+    fieldMap: fieldMap,
+    dataGaps: [],
+    dataLoss: dataLoss
+  };
+}
+
+// ─── MT940 → camt.053 CONVERSION ───
+function convertMT940toCamt053(rawText) {
+  var parsed = parseMT(rawText);
+  if (!parsed.valid && parsed.errors.length > 0) {
+    return { error: true, message: 'MT parse errors:\n' + parsed.errors.map(function(e) { return '• ' + e.message; }).join('\n') };
+  }
+
+  var ext = parsed.extracted;
+  var fields = parsed.fields;
+  var mapping = MAPPING_MT940_CAMT053;
+  var warnings = [];
+  var fieldMap = [];
+
+  function getField(tag) { return fields[tag] || null; }
+
+  var txRef = ext.transactionReference || 'NOTPROVIDED';
+  var msgId = 'BRIDGE-' + new Date().toISOString().substring(0, 10).replace(/-/g, '') + '-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+  var creDtTm = new Date().toISOString().substring(0, 19);
+  var stmtId = txRef.substring(0, 35);
+
+  // Account identification
+  var accountId = ext.accountIdentification || '';
+  var isIBAN = accountId.match(/^[A-Z]{2}\d{2}/);
+
+  // Statement number
+  var stmtNum = ext.statementNumber || {};
+  var elctrncSeqNb = stmtNum.statementNumber || '1';
+  var lglSeqNb = stmtNum.sequenceNumber || '1';
+
+  // Balances
+  var openBal = fields['60F'] ? (Array.isArray(fields['60F']) ? fields['60F'][0].decoded : fields['60F'].decoded) : null;
+  var closeBal = fields['62F'] ? (Array.isArray(fields['62F']) ? fields['62F'][0].decoded : fields['62F'].decoded) : null;
+  var closAvail = fields['64'] ? (Array.isArray(fields['64']) ? fields['64'][0].decoded : fields['64'].decoded) : null;
+
+  // Forward available balances (repeating)
+  var fwdAvailBals = [];
+  if (fields['65'] && Array.isArray(fields['65'])) {
+    for (var i = 0; i < fields['65'].length; i++) {
+      fwdAvailBals.push(fields['65'][i].decoded);
+    }
+  } else if (fields['65']) {
+    fwdAvailBals.push(fields['65'].decoded);
+  }
+
+  // Statement lines (repeating)
+  var stmtLines = ext.statementLine || [];
+  if (!Array.isArray(stmtLines)) stmtLines = [stmtLines];
+
+  // Info to account owner (repeating, paired with :61:)
+  var infoLines = ext.informationToAccountOwner || [];
+  if (!Array.isArray(infoLines)) infoLines = [infoLines];
+
+  // Helper: build balance XML element
+  function buildBalXml(bal, typeCode, indent) {
+    if (!bal) return '';
+    var x = indent + '<Bal>\n';
+    x += indent + '  <Tp><CdOrPrtry><Cd>' + typeCode + '</Cd></CdOrPrtry></Tp>\n';
+    x += indent + '  <Amt Ccy="' + escXml(bal.currency) + '">' + bal.amount.toFixed(2) + '</Amt>\n';
+    x += indent + '  <CdtDbtInd>' + (bal.indicator === 'C' ? 'CRDT' : 'DBIT') + '</CdtDbtInd>\n';
+    x += indent + '  <Dt><Dt>' + bal.date + '</Dt></Dt>\n';
+    x += indent + '</Bal>\n';
+    return x;
+  }
+
+  // Build XML
+  var xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
+  xml += '<Document xmlns="' + mapping.isoNamespace + '">\n';
+  xml += '  <' + mapping.rootElement + '>\n';
+
+  xml += '    <GrpHdr>\n';
+  xml += '      <MsgId>' + escXml(msgId) + '</MsgId>\n';
+  xml += '      <CreDtTm>' + creDtTm + '</CreDtTm>\n';
+  xml += '    </GrpHdr>\n';
+
+  xml += '    <Stmt>\n';
+  xml += '      <Id>' + escXml(stmtId) + '</Id>\n';
+  xml += '      <ElctrncSeqNb>' + escXml(elctrncSeqNb) + '</ElctrncSeqNb>\n';
+  xml += '      <LglSeqNb>' + escXml(lglSeqNb) + '</LglSeqNb>\n';
+  xml += '      <CreDtTm>' + creDtTm + '</CreDtTm>\n';
+
+  // Account
+  xml += '      <Acct><Id>';
+  if (isIBAN) {
+    xml += '<IBAN>' + escXml(accountId) + '</IBAN>';
+  } else {
+    xml += '<Othr><Id>' + escXml(accountId) + '</Id></Othr>';
+  }
+  xml += '</Id></Acct>\n';
+
+  // Balances
+  xml += buildBalXml(openBal, 'OPBD', '      ');
+  xml += buildBalXml(closeBal, 'CLBD', '      ');
+  if (closAvail) xml += buildBalXml(closAvail, 'CLAV', '      ');
+  for (var i = 0; i < fwdAvailBals.length; i++) {
+    xml += buildBalXml(fwdAvailBals[i], 'FWAV', '      ');
+  }
+
+  // Entries from :61: lines
+  for (var i = 0; i < stmtLines.length; i++) {
+    var sl = stmtLines[i];
+    var cdtDbt = (sl.dcMark === 'C' || sl.dcMark === 'RC') ? 'CRDT' : 'DBIT';
+    var isReversal = (sl.dcMark === 'RC' || sl.dcMark === 'RD');
+
+    xml += '      <Ntry>\n';
+    xml += '        <Amt Ccy="' + escXml(openBal ? openBal.currency : 'USD') + '">' + sl.amount.toFixed(2) + '</Amt>\n';
+    xml += '        <CdtDbtInd>' + cdtDbt + '</CdtDbtInd>\n';
+    if (isReversal) xml += '        <RvslInd>true</RvslInd>\n';
+    xml += '        <Sts><Cd>BOOK</Cd></Sts>\n';
+    xml += '        <BookgDt><Dt>' + (sl.entryDate || sl.valueDate) + '</Dt></BookgDt>\n';
+    xml += '        <ValDt><Dt>' + sl.valueDate + '</Dt></ValDt>\n';
+    xml += '        <BkTxCd><Prtry><Cd>' + escXml(sl.transactionType + sl.identificationCode) + '</Cd></Prtry></BkTxCd>\n';
+
+    // Entry details
+    xml += '        <NtryDtls><TxDtls>\n';
+    if (sl.customerReference) {
+      xml += '          <Refs><AcctSvcrRef>' + escXml(sl.customerReference) + '</AcctSvcrRef></Refs>\n';
+    }
+    // Paired :86: info
+    if (infoLines[i]) {
+      var infoText = typeof infoLines[i] === 'string' ? infoLines[i] : '';
+      if (infoText) {
+        xml += '          <AddtlTxInf>' + escXml(infoText.replace(/\n/g, ' ')) + '</AddtlTxInf>\n';
+      }
+    }
+    xml += '        </TxDtls></NtryDtls>\n';
+    xml += '      </Ntry>\n';
+  }
+
+  xml += '    </Stmt>\n';
+  xml += '  </' + mapping.rootElement + '>\n';
+  xml += '</Document>';
+
+  // Build field map
+  var mapFields = mapping.fields;
+  for (var i = 0; i < mapFields.length; i++) {
+    var mf = mapFields[i];
+    var srcField = getField(mf.mtTag);
+    var srcVal = '';
+    var tgtVal = '';
+
+    if (mf.mtTag === '20') { srcVal = txRef; tgtVal = msgId; }
+    else if (mf.mtTag === '25') { srcVal = accountId; tgtVal = accountId; }
+    else if (mf.mtTag === '28C') { srcVal = srcField ? srcField.rawValue : ''; tgtVal = elctrncSeqNb + '/' + lglSeqNb; }
+    else if (mf.mtTag === '60F') { srcVal = srcField ? (Array.isArray(srcField) ? srcField[0].rawValue : srcField.rawValue) : ''; tgtVal = openBal ? openBal.indicator + ' ' + openBal.date + ' ' + openBal.currency + openBal.amount.toFixed(2) : ''; }
+    else if (mf.mtTag === '61') { srcVal = stmtLines.length + ' entries'; tgtVal = stmtLines.length + ' Ntry elements'; }
+    else if (mf.mtTag === '86') { srcVal = infoLines.length + ' info blocks'; tgtVal = infoLines.length + ' AddtlTxInf elements'; }
+    else if (mf.mtTag === '62F') { srcVal = srcField ? (Array.isArray(srcField) ? srcField[0].rawValue : srcField.rawValue) : ''; tgtVal = closeBal ? closeBal.indicator + ' ' + closeBal.date + ' ' + closeBal.currency + closeBal.amount.toFixed(2) : ''; }
+    else if (mf.mtTag === '64') { srcVal = srcField ? (Array.isArray(srcField) ? srcField[0].rawValue : srcField.rawValue) : ''; tgtVal = closAvail ? 'CLAV balance' : ''; }
+    else if (mf.mtTag === '65') { srcVal = fwdAvailBals.length + ' balances'; tgtVal = fwdAvailBals.length + ' FWAV elements'; }
+
+    if (srcVal || mf.status !== 'gap') {
+      fieldMap.push({
+        sourceTag: ':' + mf.mtTag + ':',
+        sourceName: mf.mtName,
+        sourceValue: srcVal,
+        targetPath: mf.isoPath || '(dropped)',
+        targetName: mf.isoName || '(no equivalent)',
+        targetValue: tgtVal,
+        status: (srcField || srcVal) ? mf.status : 'gap',
+        notes: mf.notes
+      });
+    }
+  }
+
+  // Auto-generated
+  var autoGen = mapping.autoGenerated;
+  for (var i = 0; i < autoGen.length; i++) {
+    fieldMap.push({
+      sourceTag: '—',
+      sourceName: '(auto-generated)',
+      sourceValue: '',
+      targetPath: autoGen[i].isoPath,
+      targetName: autoGen[i].description,
+      targetValue: autoGen[i].isoPath === 'GrpHdr/CreDtTm' ? creDtTm :
+                   autoGen[i].isoPath === 'Stmt/CreDtTm' ? creDtTm :
+                   stmtId,
+      status: 'auto',
+      notes: autoGen[i].description
+    });
+  }
+
+  var path = getTranslationPath('MT940', 'camt.053');
+  if (path) warnings = path.warnings.slice();
+
+  // Build JSON
+  var entries = [];
+  for (var i = 0; i < stmtLines.length; i++) {
+    var sl = stmtLines[i];
+    var entry = {
+      amount: sl.amount,
+      creditDebitIndicator: (sl.dcMark === 'C' || sl.dcMark === 'RC') ? 'CRDT' : 'DBIT',
+      status: 'BOOK',
+      bookingDate: sl.entryDate || sl.valueDate,
+      valueDate: sl.valueDate,
+      bankTransactionCode: sl.transactionType + sl.identificationCode,
+      customerReference: sl.customerReference
+    };
+    if (infoLines[i]) entry.additionalInfo = typeof infoLines[i] === 'string' ? infoLines[i] : '';
+    entries.push(entry);
+  }
+
+  var jsonObj = {
+    messageType: 'camt.053.001.08',
+    groupHeader: { messageId: msgId, creationDateTime: creDtTm },
+    statement: {
+      id: stmtId,
+      electronicSequenceNumber: elctrncSeqNb,
+      account: accountId,
+      openingBalance: openBal,
+      closingBalance: closeBal,
+      entries: entries
+    },
+    _translation: {
+      source: 'MT940',
+      target: 'camt.053',
+      lossless: false,
+      warnings: warnings,
+      dataGaps: mapping.dataGaps.map(function(g) { return g.isoPath + ': ' + g.description; })
+    }
+  };
+
+  if (closAvail) jsonObj.statement.closingAvailableBalance = closAvail;
+  if (fwdAvailBals.length > 0) jsonObj.statement.forwardAvailableBalances = fwdAvailBals;
+
+  return {
+    error: false,
+    xml: xml,
+    json: jsonObj,
+    warnings: warnings,
+    fieldMap: fieldMap,
+    dataGaps: mapping.dataGaps,
+    dataLoss: []
+  };
+}
+
+// ─── camt.053 → MT940 CONVERSION ───
+function convertCamt053toMT940(xmlText) {
+  var parser = new DOMParser();
+  var doc = parser.parseFromString(xmlText, 'text/xml');
+
+  var parseError = doc.querySelector('parsererror');
+  if (parseError) {
+    return { error: true, message: 'XML parse error: ' + parseError.textContent.substring(0, 200) };
+  }
+
+  var root = doc.documentElement;
+  var bkStmt = getXmlEl(root, 'BkToCstmrStmt');
+  if (!bkStmt) {
+    return { error: true, message: 'Not a camt.053 message — missing BkToCstmrStmt element' };
+  }
+
+  var stmt = getXmlEl(bkStmt, 'Stmt');
+  if (!stmt) {
+    return { error: true, message: 'Missing Stmt element' };
+  }
+
+  var mapping = MAPPING_CAMT053_MT940;
+  var warnings = [];
+  var fieldMap = [];
+  var dataLoss = [];
+
+  var stmtId = getXmlText(stmt, 'Id') || 'STATEMENT';
+  var elctrncSeqNb = getXmlText(stmt, 'ElctrncSeqNb') || '1';
+  var lglSeqNb = getXmlText(stmt, 'LglSeqNb') || '1';
+
+  // Account
+  var acctId = getXmlPathText(stmt, 'Acct/Id/IBAN') || getXmlPathText(stmt, 'Acct/Id/Othr/Id');
+
+  // Balances — find by type code
+  function findBalance(typeCode) {
+    var children = stmt.childNodes;
+    for (var i = 0; i < children.length; i++) {
+      if (children[i].nodeType === 1 && (children[i].localName === 'Bal' || children[i].nodeName === 'Bal')) {
+        var cd = getXmlPathText(children[i], 'Tp/CdOrPrtry/Cd');
+        if (cd === typeCode) {
+          var amtEl = getXmlEl(children[i], 'Amt');
+          return {
+            indicator: getXmlText(children[i], 'CdtDbtInd') === 'CRDT' ? 'C' : 'D',
+            date: getXmlPathText(children[i], 'Dt/Dt') || new Date().toISOString().substring(0, 10),
+            currency: amtEl ? (amtEl.getAttribute('Ccy') || 'USD') : 'USD',
+            amount: amtEl ? parseFloat(amtEl.textContent) || 0 : 0,
+          };
+        }
+      }
+    }
+    return null;
+  }
+
+  function findAllBalances(typeCode) {
+    var results = [];
+    var children = stmt.childNodes;
+    for (var i = 0; i < children.length; i++) {
+      if (children[i].nodeType === 1 && (children[i].localName === 'Bal' || children[i].nodeName === 'Bal')) {
+        var cd = getXmlPathText(children[i], 'Tp/CdOrPrtry/Cd');
+        if (cd === typeCode) {
+          var amtEl = getXmlEl(children[i], 'Amt');
+          results.push({
+            indicator: getXmlText(children[i], 'CdtDbtInd') === 'CRDT' ? 'C' : 'D',
+            date: getXmlPathText(children[i], 'Dt/Dt') || new Date().toISOString().substring(0, 10),
+            currency: amtEl ? (amtEl.getAttribute('Ccy') || 'USD') : 'USD',
+            amount: amtEl ? parseFloat(amtEl.textContent) || 0 : 0,
+          });
+        }
+      }
+    }
+    return results;
+  }
+
+  var openBal = findBalance('OPBD');
+  var closeBal = findBalance('CLBD');
+  var closAvail = findBalance('CLAV');
+  var fwdAvailBals = findAllBalances('FWAV');
+
+  // Helper: format balance to MT tag value
+  function formatBalance(bal) {
+    if (!bal) return '';
+    var dateParts = bal.date.split('-');
+    var dateStr = dateParts[0].substring(2) + dateParts[1] + dateParts[2];
+    var amtStr = bal.amount.toFixed(2).replace('.', ',');
+    return bal.indicator + dateStr + bal.currency + amtStr;
+  }
+
+  // Entries
+  var entries = [];
+  var ntryNodes = [];
+  var stmtChildren = stmt.childNodes;
+  for (var i = 0; i < stmtChildren.length; i++) {
+    if (stmtChildren[i].nodeType === 1 && (stmtChildren[i].localName === 'Ntry' || stmtChildren[i].nodeName === 'Ntry')) {
+      ntryNodes.push(stmtChildren[i]);
+    }
+  }
+
+  for (var i = 0; i < ntryNodes.length; i++) {
+    var ntry = ntryNodes[i];
+    var amtEl = getXmlEl(ntry, 'Amt');
+    var amt = amtEl ? parseFloat(amtEl.textContent) || 0 : 0;
+    var cdtDbt = getXmlText(ntry, 'CdtDbtInd');
+    var valDt = getXmlPathText(ntry, 'ValDt/Dt') || getXmlPathText(ntry, 'BookgDt/Dt') || '';
+    var bookDt = getXmlPathText(ntry, 'BookgDt/Dt') || '';
+    var txCd = getXmlPathText(ntry, 'BkTxCd/Prtry/Cd') || getXmlPathText(ntry, 'BkTxCd/Domn/Fmly/Cd') || 'NTRF';
+    var custRef = getXmlPathText(ntry, 'NtryDtls/TxDtls/Refs/AcctSvcrRef') || getXmlPathText(ntry, 'NtryDtls/TxDtls/Refs/EndToEndId') || 'NONREF';
+    var addtlInfo = getXmlPathText(ntry, 'NtryDtls/TxDtls/AddtlTxInf');
+
+    var dcMark = cdtDbt === 'CRDT' ? 'C' : 'D';
+    var rvslInd = getXmlText(ntry, 'RvslInd');
+    if (rvslInd === 'true') dcMark = 'R' + dcMark;
+
+    // Build :61: line
+    var valDateParts = valDt.split('-');
+    var valDateStr = valDateParts.length === 3 ? valDateParts[0].substring(2) + valDateParts[1] + valDateParts[2] : '';
+    var entryDateStr = '';
+    if (bookDt && bookDt !== valDt) {
+      var bookParts = bookDt.split('-');
+      if (bookParts.length === 3) entryDateStr = bookParts[1] + bookParts[2];
+    }
+    var amtStr = amt.toFixed(2).replace('.', ',');
+    var txTypeChar = txCd.charAt(0) || 'N';
+    var idCodeStr = txCd.substring(0, 3).padEnd(3, ' ');
+    if (txCd.length >= 4) {
+      txTypeChar = txCd.charAt(0);
+      idCodeStr = txCd.substring(1, 4);
+    }
+
+    var tag61 = valDateStr + entryDateStr + dcMark + amtStr + txTypeChar + idCodeStr + custRef.substring(0, 16);
+
+    entries.push({
+      tag61: tag61,
+      tag86: addtlInfo || '',
+      amount: amt,
+      dcMark: dcMark,
+      valueDate: valDt,
+      custRef: custRef
+    });
+  }
+
+  // Build MT message
+  var tag20 = stmtId.substring(0, 16);
+  var tag25 = acctId.substring(0, 35);
+  var tag28C = elctrncSeqNb + '/' + lglSeqNb;
+
+  var mt = '{1:F01BANKUS33XXXX0000000000}\n';
+  mt += '{2:O9400000000000BANKUS33XXXX00000000000000000000N}\n';
+  mt += '{4:\n';
+  mt += ':20:' + tag20 + '\n';
+  mt += ':25:' + tag25 + '\n';
+  mt += ':28C:' + tag28C + '\n';
+  mt += ':60F:' + formatBalance(openBal) + '\n';
+
+  for (var i = 0; i < entries.length; i++) {
+    mt += ':61:' + entries[i].tag61 + '\n';
+    if (entries[i].tag86) {
+      // Split :86: into 6×65 char lines
+      var info86 = entries[i].tag86.substring(0, 390);
+      var lines86 = '';
+      for (var j = 0; j < info86.length; j += 65) {
+        if (lines86) lines86 += '\n';
+        lines86 += info86.substring(j, j + 65);
+      }
+      mt += ':86:' + lines86 + '\n';
+    }
+  }
+
+  mt += ':62F:' + formatBalance(closeBal) + '\n';
+  if (closAvail) mt += ':64:' + formatBalance(closAvail) + '\n';
+  for (var i = 0; i < fwdAvailBals.length; i++) {
+    mt += ':65:' + formatBalance(fwdAvailBals[i]) + '\n';
+  }
+  mt += '-}';
+
+  // Build field map
+  var mapFields = mapping.fields;
+  for (var i = 0; i < mapFields.length; i++) {
+    var mf = mapFields[i];
+    var srcVal = '';
+    var tgtVal = '';
+
+    if (mf.isoPath === 'Stmt/Id') { srcVal = stmtId; tgtVal = tag20; }
+    else if (mf.isoPath === 'Stmt/Acct/Id') { srcVal = acctId; tgtVal = tag25; }
+    else if (mf.isoPath === 'Stmt/ElctrncSeqNb') { srcVal = elctrncSeqNb; tgtVal = tag28C; }
+    else if (mf.isoPath === 'Stmt/Bal[OPBD]') { srcVal = openBal ? 'OPBD balance' : ''; tgtVal = formatBalance(openBal); }
+    else if (mf.isoPath === 'Stmt/Ntry') { srcVal = entries.length + ' entries'; tgtVal = entries.length + ' :61: lines'; }
+    else if (mf.isoPath === 'Stmt/Ntry/NtryDtls/TxDtls/AddtlTxInf') { srcVal = entries.filter(function(e) { return e.tag86; }).length + ' info blocks'; tgtVal = 'paired :86: fields'; }
+    else if (mf.isoPath === 'Stmt/Bal[CLBD]') { srcVal = closeBal ? 'CLBD balance' : ''; tgtVal = formatBalance(closeBal); }
+    else if (mf.isoPath === 'Stmt/Bal[CLAV]') { srcVal = closAvail ? 'CLAV balance' : ''; tgtVal = closAvail ? formatBalance(closAvail) : ''; }
+    else if (mf.isoPath === 'Stmt/Bal[FWAV]') { srcVal = fwdAvailBals.length + ' balances'; tgtVal = fwdAvailBals.length + ' :65: fields'; }
+
+    if (srcVal || tgtVal) {
+      fieldMap.push({
+        sourceTag: mf.isoPath,
+        sourceName: mf.isoName,
+        sourceValue: srcVal,
+        targetPath: ':' + mf.mtTag + ':',
+        targetName: mf.mtName,
+        targetValue: tgtVal,
+        status: mf.status,
+        notes: mf.notes
+      });
+    }
+  }
+
+  // Auto-generated
+  var autoGen = mapping.autoGenerated;
+  for (var i = 0; i < autoGen.length; i++) {
+    fieldMap.push({
+      sourceTag: '—',
+      sourceName: '(auto-generated)',
+      sourceValue: '',
+      targetPath: autoGen[i].mtField,
+      targetName: autoGen[i].description,
+      targetValue: autoGen[i].mtField.indexOf('Block 1') !== -1 ? 'BANKUS33XXXX' : 'O940...',
+      status: 'auto',
+      notes: autoGen[i].description
+    });
+  }
+
+  // Data loss
+  var lossItems = mapping.dataLoss;
+  for (var i = 0; i < lossItems.length; i++) {
+    // Check if values exist in the source XML for these paths
+    var hasLoss = false;
+    if (lossItems[i].isoPath === 'Stmt/FrToDt') hasLoss = !!getXmlEl(stmt, 'FrToDt');
+    else if (lossItems[i].isoPath === 'Stmt/Ntry/Sts/Cd') hasLoss = ntryNodes.length > 0;
+    else if (lossItems[i].isoPath.indexOf('Ntry') !== -1) hasLoss = ntryNodes.length > 0;
+    else hasLoss = !!getXmlPathText(stmt, lossItems[i].isoPath.replace('Stmt/', ''));
+
+    if (hasLoss) {
+      dataLoss.push({ path: lossItems[i].isoPath, description: lossItems[i].description, lostValue: '(present in source)' });
+    }
+  }
+
+  var path = getTranslationPath('camt.053', 'MT940');
+  if (path) warnings = path.warnings.slice();
+
+  // Build JSON
+  var jsonEntries = [];
+  for (var i = 0; i < entries.length; i++) {
+    jsonEntries.push({
+      tag61: entries[i].tag61,
+      amount: entries[i].amount,
+      creditDebit: entries[i].dcMark,
+      valueDate: entries[i].valueDate,
+      customerReference: entries[i].custRef,
+      additionalInfo: entries[i].tag86
+    });
+  }
+
+  var jsonObj = {
+    messageType: 'MT940',
+    transactionReference: tag20,
+    accountIdentification: tag25,
+    statementNumber: tag28C,
+    openingBalance: openBal,
+    closingBalance: closeBal,
+    entries: jsonEntries,
+    _translation: {
+      source: 'camt.053',
+      target: 'MT940',
+      lossless: false,
+      warnings: warnings,
+      dataLoss: dataLoss.map(function(d) { return d.path + ': ' + d.description; })
+    }
+  };
+
+  return {
+    error: false,
+    mt: mt,
+    xml: mt,
+    json: jsonObj,
+    warnings: warnings,
+    fieldMap: fieldMap,
+    dataGaps: [],
+    dataLoss: dataLoss
+  };
+}
+
 // ─── MAIN TRANSLATION ORCHESTRATOR ───
 function translate() {
   var fromVal = document.getElementById('from-select').value;
@@ -1118,6 +2053,14 @@ function translate() {
     result = convertMTtoISO(rawText);
   } else if (fromVal === 'pacs.008' && toVal === 'MT103') {
     result = convertISOtoMT(rawText);
+  } else if (fromVal === 'MT202' && toVal === 'pacs.009') {
+    result = convertMT202toPacs009(rawText);
+  } else if (fromVal === 'pacs.009' && toVal === 'MT202') {
+    result = convertPacs009toMT202(rawText);
+  } else if (fromVal === 'MT940' && toVal === 'camt.053') {
+    result = convertMT940toCamt053(rawText);
+  } else if (fromVal === 'camt.053' && toVal === 'MT940') {
+    result = convertCamt053toMT940(rawText);
   } else {
     showToast('Translation path ' + fromVal + ' → ' + toVal + ' not yet supported', true);
     return;
@@ -1286,7 +2229,12 @@ function initUI() {
     var formats = getFormatsForCountry(code);
     var availableFrom = [];
     for (var i = 0; i < formats.length; i++) {
-      if (getValidTargets(formats[i]).length > 0) availableFrom.push(formats[i]);
+      var targets = getValidTargets(formats[i]);
+      var hasCountryTarget = false;
+      for (var j = 0; j < targets.length; j++) {
+        if (formats.indexOf(targets[j]) !== -1) { hasCountryTarget = true; break; }
+      }
+      if (hasCountryTarget) availableFrom.push(formats[i]);
     }
     var currentFrom = document.getElementById('from-select').value;
     buildFormatGrid('from-grid', availableFrom, function(fmt) {
@@ -1419,7 +2367,11 @@ function highlightSource() {
 // ─── SAMPLE LOADER ───
 var INLINE_SAMPLES = {
   'MT103': '{1:F01NWBKGB2LAXXX0000000000}\n{2:I103COBADEFFXXXXN}\n{4:\n:20:SHANX-20250101-001\n:23B:CRED\n:32A:250101USD10000,00\n:50K:/GB29NWBK60161331926819\nAcme Corporation\n1 Canada Square\nLondon E14 5AB\n:52A:NWBKGB2L\n:57A:COBADEFF\n:59:/DE89370400440532013000\nGlobal Trade Bank\nNeue Mainzer Str 32\nFrankfurt 60311\n:70:INVOICE REF 2025-INV-0042\n:71A:SHA\n-}',
-  'pacs.008': '<?xml version="1.0" encoding="UTF-8"?>\n<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pacs.008.001.08">\n  <FIToFICstmrCdtTrf>\n    <GrpHdr>\n      <MsgId>PACS008-20250115-001</MsgId>\n      <CreDtTm>2025-01-15T09:00:00</CreDtTm>\n      <NbOfTxs>1</NbOfTxs>\n      <SttlmInf><SttlmMtd>CLRG</SttlmMtd></SttlmInf>\n    </GrpHdr>\n    <CdtTrfTxInf>\n      <PmtId>\n        <InstrId>INSTR-20250115-001</InstrId>\n        <EndToEndId>E2E-PACS008-001</EndToEndId>\n      </PmtId>\n      <IntrBkSttlmAmt Ccy="USD">10000.00</IntrBkSttlmAmt>\n      <IntrBkSttlmDt>2025-01-15</IntrBkSttlmDt>\n      <ChrgBr>SHAR</ChrgBr>\n      <Dbtr>\n        <Nm>Acme Corporation</Nm>\n        <PstlAdr>\n          <StrtNm>1 Canada Square</StrtNm>\n          <TwnNm>London</TwnNm>\n          <PstCd>E14 5AB</PstCd>\n          <Ctry>GB</Ctry>\n        </PstlAdr>\n      </Dbtr>\n      <DbtrAcct>\n        <Id><IBAN>GB29NWBK60161331926819</IBAN></Id>\n      </DbtrAcct>\n      <DbtrAgt>\n        <FinInstnId><BICFI>NWBKGB2LXXX</BICFI></FinInstnId>\n      </DbtrAgt>\n      <CdtrAgt>\n        <FinInstnId><BICFI>COBADEFFXXX</BICFI></FinInstnId>\n      </CdtrAgt>\n      <Cdtr>\n        <Nm>Global Trade Bank</Nm>\n        <PstlAdr>\n          <StrtNm>Neue Mainzer Str 32</StrtNm>\n          <TwnNm>Frankfurt</TwnNm>\n          <PstCd>60311</PstCd>\n          <Ctry>DE</Ctry>\n        </PstlAdr>\n      </Cdtr>\n      <CdtrAcct>\n        <Id><IBAN>DE89370400440532013000</IBAN></Id>\n      </CdtrAcct>\n      <RmtInf>\n        <Ustrd>INVOICE REF 2025-INV-0042</Ustrd>\n      </RmtInf>\n    </CdtTrfTxInf>\n  </FIToFICstmrCdtTrf>\n</Document>'
+  'pacs.008': '<?xml version="1.0" encoding="UTF-8"?>\n<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pacs.008.001.08">\n  <FIToFICstmrCdtTrf>\n    <GrpHdr>\n      <MsgId>PACS008-20250115-001</MsgId>\n      <CreDtTm>2025-01-15T09:00:00</CreDtTm>\n      <NbOfTxs>1</NbOfTxs>\n      <SttlmInf><SttlmMtd>CLRG</SttlmMtd></SttlmInf>\n    </GrpHdr>\n    <CdtTrfTxInf>\n      <PmtId>\n        <InstrId>INSTR-20250115-001</InstrId>\n        <EndToEndId>E2E-PACS008-001</EndToEndId>\n      </PmtId>\n      <IntrBkSttlmAmt Ccy="USD">10000.00</IntrBkSttlmAmt>\n      <IntrBkSttlmDt>2025-01-15</IntrBkSttlmDt>\n      <ChrgBr>SHAR</ChrgBr>\n      <Dbtr>\n        <Nm>Acme Corporation</Nm>\n        <PstlAdr>\n          <StrtNm>1 Canada Square</StrtNm>\n          <TwnNm>London</TwnNm>\n          <PstCd>E14 5AB</PstCd>\n          <Ctry>GB</Ctry>\n        </PstlAdr>\n      </Dbtr>\n      <DbtrAcct>\n        <Id><IBAN>GB29NWBK60161331926819</IBAN></Id>\n      </DbtrAcct>\n      <DbtrAgt>\n        <FinInstnId><BICFI>NWBKGB2LXXX</BICFI></FinInstnId>\n      </DbtrAgt>\n      <CdtrAgt>\n        <FinInstnId><BICFI>COBADEFFXXX</BICFI></FinInstnId>\n      </CdtrAgt>\n      <Cdtr>\n        <Nm>Global Trade Bank</Nm>\n        <PstlAdr>\n          <StrtNm>Neue Mainzer Str 32</StrtNm>\n          <TwnNm>Frankfurt</TwnNm>\n          <PstCd>60311</PstCd>\n          <Ctry>DE</Ctry>\n        </PstlAdr>\n      </Cdtr>\n      <CdtrAcct>\n        <Id><IBAN>DE89370400440532013000</IBAN></Id>\n      </CdtrAcct>\n      <RmtInf>\n        <Ustrd>INVOICE REF 2025-INV-0042</Ustrd>\n      </RmtInf>\n    </CdtTrfTxInf>\n  </FIToFICstmrCdtTrf>\n</Document>',
+  'MT202': '{1:F01CHASUS33XXXX0000000000}\n{2:I202CITIUS33XXXXN}\n{4:\n:20:FIT-20250215-007\n:21:REL-20250215-007\n:32A:250215USD500000,00\n:52A:CHASUS33\n:57A:CITIUS33\n:58A:DEUTDEFF\n:72:/ACC/FUNDS TRANSFER FOR\n//TREASURY OPERATIONS\n-}',
+  'pacs.009': '<?xml version="1.0" encoding="UTF-8"?>\n<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pacs.009.001.08">\n  <FICdtTrf>\n    <GrpHdr>\n      <MsgId>PACS009-20250215-001</MsgId>\n      <CreDtTm>2025-02-15T10:30:00</CreDtTm>\n      <NbOfTxs>1</NbOfTxs>\n      <SttlmInf><SttlmMtd>CLRG</SttlmMtd></SttlmInf>\n    </GrpHdr>\n    <CdtTrfTxInf>\n      <PmtId>\n        <InstrId>INSTR-20250215-001</InstrId>\n        <EndToEndId>E2E-PACS009-001</EndToEndId>\n      </PmtId>\n      <IntrBkSttlmAmt Ccy="USD">500000.00</IntrBkSttlmAmt>\n      <IntrBkSttlmDt>2025-02-15</IntrBkSttlmDt>\n      <Dbtr>\n        <FinInstnId><BICFI>CHASUS33XXX</BICFI></FinInstnId>\n      </Dbtr>\n      <CdtrAgt>\n        <FinInstnId><BICFI>CITIUS33XXX</BICFI></FinInstnId>\n      </CdtrAgt>\n      <Cdtr>\n        <FinInstnId><BICFI>DEUTDEFFXXX</BICFI></FinInstnId>\n      </Cdtr>\n      <InstrForNxtAgt>\n        <InstrInf>FUNDS TRANSFER FOR TREASURY OPERATIONS</InstrInf>\n      </InstrForNxtAgt>\n    </CdtTrfTxInf>\n  </FICdtTrf>\n</Document>',
+  'MT940': '{1:F01BANKUS33XXXX0000000000}\n{2:O9400845250215BANKUS33XXXX00000000002502150845N}\n{4:\n:20:STMT-20250215-001\n:25:US33100012345678\n:28C:15/1\n:60F:C250214USD125000,00\n:61:2502150215CD5000,00NTRF12345678//BANKREF001\n:86:PAYMENT FROM ACME CORP - INV 2025-001\n:61:2502150215DD12000,00NTRF87654321//BANKREF002\n:86:WIRE TRANSFER TO SUPPLIER - PO 44821\n:61:2502150215CD750,00NTRFMISC0001//BANKREF003\n:86:INTEREST PAYMENT Q4 2024\n:62F:C250215USD118750,00\n:64:C250215USD118750,00\n-}',
+  'camt.053': '<?xml version="1.0" encoding="UTF-8"?>\n<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.08">\n  <BkToCstmrStmt>\n    <GrpHdr>\n      <MsgId>CAMT053-20250215-001</MsgId>\n      <CreDtTm>2025-02-15T18:00:00</CreDtTm>\n    </GrpHdr>\n    <Stmt>\n      <Id>STMT-20250215-001</Id>\n      <ElctrncSeqNb>15</ElctrncSeqNb>\n      <LglSeqNb>1</LglSeqNb>\n      <CreDtTm>2025-02-15T18:00:00</CreDtTm>\n      <Acct><Id><Othr><Id>US33100012345678</Id></Othr></Id></Acct>\n      <Bal>\n        <Tp><CdOrPrtry><Cd>OPBD</Cd></CdOrPrtry></Tp>\n        <Amt Ccy="USD">125000.00</Amt>\n        <CdtDbtInd>CRDT</CdtDbtInd>\n        <Dt><Dt>2025-02-14</Dt></Dt>\n      </Bal>\n      <Bal>\n        <Tp><CdOrPrtry><Cd>CLBD</Cd></CdOrPrtry></Tp>\n        <Amt Ccy="USD">118750.00</Amt>\n        <CdtDbtInd>CRDT</CdtDbtInd>\n        <Dt><Dt>2025-02-15</Dt></Dt>\n      </Bal>\n      <Bal>\n        <Tp><CdOrPrtry><Cd>CLAV</Cd></CdOrPrtry></Tp>\n        <Amt Ccy="USD">118750.00</Amt>\n        <CdtDbtInd>CRDT</CdtDbtInd>\n        <Dt><Dt>2025-02-15</Dt></Dt>\n      </Bal>\n      <Ntry>\n        <Amt Ccy="USD">5000.00</Amt>\n        <CdtDbtInd>CRDT</CdtDbtInd>\n        <Sts><Cd>BOOK</Cd></Sts>\n        <BookgDt><Dt>2025-02-15</Dt></BookgDt>\n        <ValDt><Dt>2025-02-15</Dt></ValDt>\n        <BkTxCd><Prtry><Cd>NTRF</Cd></Prtry></BkTxCd>\n        <NtryDtls><TxDtls>\n          <Refs><AcctSvcrRef>12345678</AcctSvcrRef></Refs>\n          <AddtlTxInf>PAYMENT FROM ACME CORP - INV 2025-001</AddtlTxInf>\n        </TxDtls></NtryDtls>\n      </Ntry>\n      <Ntry>\n        <Amt Ccy="USD">12000.00</Amt>\n        <CdtDbtInd>DBIT</CdtDbtInd>\n        <Sts><Cd>BOOK</Cd></Sts>\n        <BookgDt><Dt>2025-02-15</Dt></BookgDt>\n        <ValDt><Dt>2025-02-15</Dt></ValDt>\n        <BkTxCd><Prtry><Cd>NTRF</Cd></Prtry></BkTxCd>\n        <NtryDtls><TxDtls>\n          <Refs><AcctSvcrRef>87654321</AcctSvcrRef></Refs>\n          <AddtlTxInf>WIRE TRANSFER TO SUPPLIER - PO 44821</AddtlTxInf>\n        </TxDtls></NtryDtls>\n      </Ntry>\n      <Ntry>\n        <Amt Ccy="USD">750.00</Amt>\n        <CdtDbtInd>CRDT</CdtDbtInd>\n        <Sts><Cd>BOOK</Cd></Sts>\n        <BookgDt><Dt>2025-02-15</Dt></BookgDt>\n        <ValDt><Dt>2025-02-15</Dt></ValDt>\n        <BkTxCd><Prtry><Cd>NTRF</Cd></Prtry></BkTxCd>\n        <NtryDtls><TxDtls>\n          <Refs><AcctSvcrRef>MISC0001</AcctSvcrRef></Refs>\n          <AddtlTxInf>INTEREST PAYMENT Q4 2024</AddtlTxInf>\n        </TxDtls></NtryDtls>\n      </Ntry>\n    </Stmt>\n  </BkToCstmrStmt>\n</Document>'
 };
 
 function loadSample(format) {

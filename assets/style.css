@@ -1176,6 +1176,7 @@ body {
   display: flex;
   align-items: center;
   gap: 15px;
+  text-transform: uppercase;
 }
 
 .country-dropdown .uk-nav>li>a:hover {
@@ -1215,6 +1216,11 @@ body {
   background: #B5EAFF;
   border-bottom: none;
   padding: 12px 20px;
+}
+
+.format-bar-disabled {
+  opacity: 0.35;
+  pointer-events: none;
 }
 
 .format-bar-inner {
@@ -1414,6 +1420,7 @@ body {
   flex-shrink: 0;
   opacity: 0.8;
 }
+
 
 /* ─── FIELD MAPPING DIAGRAM ─── */
 .mapping-section {

@@ -65,18 +65,24 @@ You paste a source message on the left. You get the translated output on the rig
 
 ### v1.0 Translation Paths
 
-| Source | Target | Direction | Lossy? |
-|--------|--------|-----------|--------|
-| MT103 | pacs.008.001.08 | SWIFT Legacy to ISO 20022 | Yes |
-| pacs.008.001.08 | MT103 | ISO 20022 to SWIFT Legacy | Yes |
+| Source | Target | Category | Lossy? |
+|--------|--------|----------|--------|
+| MT103 | pacs.008.001.08 | Customer Payments | Yes |
+| pacs.008.001.08 | MT103 | Customer Payments | Yes |
+| MT202 | pacs.009.001.08 | FI to FI Transfers | Yes |
+| pacs.009.001.08 | MT202 | FI to FI Transfers | Yes |
+| MT940 | camt.053.001.08 | Account Statements | Yes |
+| camt.053.001.08 | MT940 | Account Statements | Yes |
 
 ### v1.0 Country Coverage
 
 | Country | Active Rails | Formats | Status |
 |---------|-------------|---------|--------|
-| United States | SWIFT, Fedwire, CHIPS, ACH, RTP, FedNow | MT103, MT202, MT940, pacs.008, pain.001, camt.053 | Active |
+| United States | SWIFT, Fedwire, CHIPS, ACH, RTP, FedNow | MT103, MT202, MT940, pacs.008, pacs.009, pain.001, camt.053 | Active |
 | Canada | SWIFT, Lynx, ACSS, RTR | MT103, MT940, pacs.008, pain.001, camt.053 | Active |
-| Brazil | SWIFT, PIX, SITRAF, SPB | pacs.008, pain.001, camt.053 | Active |
+| Brazil | SWIFT, PIX, SITRAF, SPB | pacs.008, pain.001, camt.053 | Active (ISO-native) |
+
+Brazil is fully ISO 20022-native. Its domestic rails (PIX, SITRAF) were built on ISO 20022 from the start, so there is no legacy format translation needed. The tool reflects this: selecting Brazil disables the format selectors and displays an informational banner.
 
 Six additional countries (UK, EU, Mexico, Singapore, Australia, India) are defined in the country registry and visible in the UI as planned.
 
@@ -100,10 +106,11 @@ iso-bridge/
 │   ├── translations.js                 # Translation path definitions
 │   └── mappings/
 │       ├── mt103-pacs008.js            # Field-by-field: MT103 → pacs.008
-│       └── pacs008-mt103.js            # Field-by-field: pacs.008 → MT103
-└── samples/
-    ├── mt103-sample.txt
-    └── pacs008-sample.xml
+│       ├── pacs008-mt103.js            # Field-by-field: pacs.008 → MT103
+│       ├── mt202-pacs009.js            # Field-by-field: MT202 → pacs.009
+│       ├── pacs009-mt202.js            # Field-by-field: pacs.009 → MT202
+│       ├── mt940-camt053.js            # Field-by-field: MT940 → camt.053
+│       └── camt053-mt940.js            # Field-by-field: camt.053 → MT940
 ```
 
 The engine (`app.js`) reads from three configuration layers at runtime. It contains no hardcoded knowledge about countries, formats, or field mappings. All of that lives in `config/`.
@@ -116,7 +123,7 @@ Each country is a simple object that declares which formats and rails are active
 US: {
   name: 'United States',
   flag: '🇺🇸',
-  formats: ['MT103', 'MT202', 'MT940', 'pacs.008', 'pain.001', 'camt.053'],
+  formats: ['MT103', 'MT202', 'MT940', 'pacs.008', 'pacs.009', 'pain.001', 'camt.053'],
   rails: ['SWIFT', 'Fedwire', 'CHIPS', 'ACH', 'RTP', 'FedNow'],
   notes: 'Fedwire migrating to ISO 20022. RTP and FedNow native ISO 20022.'
 }
@@ -252,8 +259,7 @@ Each tool addresses a different question. The parser asks "what does this messag
 
 ### v1.1
 
-- MT202 / pacs.009 (institution-to-institution transfers)
-- MT940 / MT950 / camt.053 (account statements)
 - UK, EU, Mexico, Singapore, Australia, India country activation
+- MT950 / camt.052 (interim statements)
 - Field mapping reference tab (standalone browsable reference)
 - Message builder (generate ISO XML from form inputs)

@@ -2,7 +2,7 @@ var COUNTRIES = {
   US: {
     name: 'United States',
     flag: '🇺🇸',
-    formats: ['MT103', 'MT202', 'MT940', 'pacs.008', 'pain.001', 'camt.053'],
+    formats: ['MT103', 'MT202', 'MT940', 'pacs.008', 'pacs.009', 'pain.001', 'camt.053'],
     rails: ['SWIFT', 'Fedwire', 'CHIPS', 'ACH', 'RTP', 'FedNow'],
     notes: 'Fedwire migrating to ISO 20022. RTP and FedNow native ISO 20022. CHIPS migration completed March 2025.'
   },
@@ -25,7 +25,7 @@ var COUNTRIES = {
     name: 'United Kingdom',
     flag: '🇬🇧',
     planned: true,
-    formats: ['MT103', 'MT202', 'MT940', 'pacs.008', 'pain.001', 'camt.053'],
+    formats: ['MT103', 'MT202', 'MT940', 'pacs.008', 'pacs.009', 'pain.001', 'camt.053'],
     rails: ['SWIFT', 'CHAPS', 'Faster Payments', 'BACS'],
     notes: 'CHAPS migrated to ISO 20022 June 2023. Faster Payments migration planned.'
   },
@@ -33,7 +33,7 @@ var COUNTRIES = {
     name: 'European Union',
     flag: '🇪🇺',
     planned: true,
-    formats: ['MT103', 'MT202', 'MT940', 'pacs.008', 'pain.001', 'camt.053'],
+    formats: ['MT103', 'MT202', 'MT940', 'pacs.008', 'pacs.009', 'pain.001', 'camt.053'],
     rails: ['SWIFT', 'TARGET2', 'SEPA', 'TIPS'],
     notes: 'TARGET2 migrated to ISO 20022 March 2023. SEPA native ISO 20022.'
   },

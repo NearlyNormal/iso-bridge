@@ -34,6 +34,20 @@ var fieldDictionary = {
   '71G': { name: 'Receiver Charges', key: 'receiverCharges', format: '3!a15d', compound: true },
   '72':  { name: 'Sender to Receiver Information', key: 'senderToReceiverInfo', format: '6*35x' },
   '77B': { name: 'Regulatory Reporting', key: 'regulatoryReporting', format: '3*35x' },
+  // MT202 additional fields
+  '57B': { name: 'Account With Institution (Location)', key: 'accountWithInstitution', format: '3*35x', party: true },
+  '58A': { name: 'Beneficiary Institution', key: 'beneficiaryInstitution', format: 'BIC' },
+  // MT940 / MT950 fields
+  '25':  { name: 'Account Identification', key: 'accountIdentification', format: '35x' },
+  '28C': { name: 'Statement Number / Sequence Number', key: 'statementNumber', format: '5n[/5n]', compound: true },
+  '60F': { name: 'Opening Balance (First)', key: 'openingBalance', format: 'balance', compound: true },
+  '60M': { name: 'Opening Balance (Intermediate)', key: 'openingBalanceIntermediate', format: 'balance', compound: true },
+  '61':  { name: 'Statement Line', key: 'statementLine', format: 'statement_line', compound: true, repeating: true },
+  '62F': { name: 'Closing Balance (Booked)', key: 'closingBalance', format: 'balance', compound: true },
+  '62M': { name: 'Closing Balance (Intermediate)', key: 'closingBalanceIntermediate', format: 'balance', compound: true },
+  '64':  { name: 'Closing Available Balance', key: 'closingAvailableBalance', format: 'balance', compound: true },
+  '65':  { name: 'Forward Available Balance', key: 'forwardAvailableBalance', format: 'balance', compound: true, repeating: true },
+  '86':  { name: 'Information to Account Owner', key: 'informationToAccountOwner', format: '6*65x', repeating: true },
 };
 
 // ─── MESSAGE TYPE SCHEMAS ───
@@ -43,6 +57,23 @@ var mtSchemaRegistry = {
     name: 'Single Customer Credit Transfer',
     mandatory: ['20', '23B', '32A', '50A|50K|50F', '59|59A|59F', '71A'],
     optional: ['13C', '21', '23E', '26T', '33B', '36', '52A|52D', '53A|53B', '54A', '56A|56D', '57A|57D', '70', '71F', '71G', '72', '77B'],
+  },
+  'MT202': {
+    name: 'General Financial Institution Transfer',
+    mandatory: ['20', '21', '32A', '58A'],
+    optional: ['13C', '52A', '52D', '53A', '53B', '54A', '56A', '56D', '57A', '57B', '57D', '72'],
+  },
+  'MT940': {
+    name: 'Customer Statement Message',
+    mandatory: ['20', '25', '28C', '60F', '62F'],
+    optional: ['21', '60M', '61', '62M', '64', '65', '86'],
+    repeating: ['61', '86', '65'],
+  },
+  'MT950': {
+    name: 'Statement Message',
+    mandatory: ['20', '25', '28C', '60F', '62F'],
+    optional: ['60M', '61', '62M', '64'],
+    repeating: ['61'],
   }
 };
 
@@ -126,6 +157,7 @@ function parseEnvelope(rawText) {
 }
 
 // ─── FIELD SPLITTER ───
+// Supports repeating tags (e.g. :61:, :86:, :65: in MT940)
 function splitFields(textBlock) {
   var fields = [];
   var lines = textBlock.split('\n');
@@ -241,6 +273,127 @@ function decodeCharges(value) {
   };
 }
 
+// ─── MT940/MT950 DECODERS ───
+function decodeBalance(text) {
+  // Format: D/C (1 char) + date (6 digits YYMMDD) + currency (3 chars) + amount (comma decimal)
+  var cleaned = text.replace(/\n/g, '').trim();
+  var indicator = cleaned.charAt(0); // 'C' or 'D'
+  var dateStr = cleaned.substring(1, 7);
+  var ccy = cleaned.substring(7, 10);
+  var amtStr = cleaned.substring(10).replace(',', '.');
+
+  var yy = parseInt(dateStr.substring(0, 2), 10);
+  var mm = dateStr.substring(2, 4);
+  var dd = dateStr.substring(4, 6);
+  var fullYear = (yy > 79 ? 1900 : 2000) + yy;
+
+  return {
+    indicator: indicator,
+    date: fullYear + '-' + mm + '-' + dd,
+    currency: ccy,
+    amount: parseFloat(amtStr) || 0,
+  };
+}
+
+function decodeStatementLine(text) {
+  // :61: format: value date (6n) + [entry date (4n)] + D/C mark (1-2c) + [funds code (1a)] + amount (15d) +
+  //   transaction type (1a) + id code (3c) + customer ref (16x) + [//bank ref (16x)] + [supplementary (34x)]
+  var cleaned = text.replace(/\n/g, '').trim();
+  var pos = 0;
+
+  // Value date: 6 digits YYMMDD
+  var valDateStr = cleaned.substring(pos, pos + 6);
+  pos += 6;
+  var yy = parseInt(valDateStr.substring(0, 2), 10);
+  var fullYear = (yy > 79 ? 1900 : 2000) + yy;
+  var valueDate = fullYear + '-' + valDateStr.substring(2, 4) + '-' + valDateStr.substring(4, 6);
+
+  // Entry date: optional 4 digits MMDD
+  var entryDate = '';
+  if (cleaned.substring(pos, pos + 4).match(/^\d{4}$/)) {
+    var entMM = cleaned.substring(pos, pos + 2);
+    var entDD = cleaned.substring(pos + 2, pos + 4);
+    entryDate = fullYear + '-' + entMM + '-' + entDD;
+    pos += 4;
+  }
+
+  // D/C mark: C, D, RC, RD
+  var dcMark = '';
+  if (cleaned.charAt(pos) === 'R') {
+    dcMark = cleaned.substring(pos, pos + 2);
+    pos += 2;
+  } else {
+    dcMark = cleaned.charAt(pos);
+    pos += 1;
+  }
+
+  // Funds code: optional single letter (only if next char is a letter before the amount digits)
+  var fundsCode = '';
+  if (cleaned.charAt(pos).match(/[A-Za-z]/) && !cleaned.charAt(pos).match(/[.,\d]/)) {
+    fundsCode = cleaned.charAt(pos);
+    pos += 1;
+  }
+
+  // Amount: digits with optional comma decimal
+  var amtMatch = cleaned.substring(pos).match(/^[\d,]+/);
+  var amount = 0;
+  if (amtMatch) {
+    amount = parseFloat(amtMatch[0].replace(',', '.')) || 0;
+    pos += amtMatch[0].length;
+  }
+
+  // Transaction type (1 char) + identification code (3 chars)
+  var txType = cleaned.charAt(pos) || '';
+  var idCode = cleaned.substring(pos + 1, pos + 4) || '';
+  pos += 4;
+
+  // Customer reference: up to 16 chars, terminated by // or newline
+  var rest = cleaned.substring(pos);
+  var custRef = '';
+  var bankRef = '';
+  var supplementary = '';
+
+  var slashIdx = rest.indexOf('//');
+  if (slashIdx !== -1) {
+    custRef = rest.substring(0, slashIdx);
+    var afterSlash = rest.substring(slashIdx + 2);
+    // Bank ref up to 16 chars, then optional \n + supplementary
+    var nlIdx = afterSlash.indexOf('\n');
+    if (nlIdx !== -1) {
+      bankRef = afterSlash.substring(0, nlIdx);
+      supplementary = afterSlash.substring(nlIdx + 1);
+    } else {
+      bankRef = afterSlash.substring(0, 16);
+      supplementary = afterSlash.substring(16);
+    }
+  } else {
+    custRef = rest.substring(0, 16);
+    supplementary = rest.substring(16);
+  }
+
+  return {
+    valueDate: valueDate,
+    entryDate: entryDate,
+    dcMark: dcMark,
+    fundsCode: fundsCode,
+    amount: amount,
+    transactionType: txType,
+    identificationCode: idCode,
+    customerReference: custRef.trim(),
+    bankReference: bankRef.trim(),
+    supplementary: supplementary.trim(),
+  };
+}
+
+function decodeStatementNumber(text) {
+  var cleaned = text.replace(/\n/g, '').trim();
+  var parts = cleaned.split('/');
+  return {
+    statementNumber: parts[0] || '',
+    sequenceNumber: parts[1] || '',
+  };
+}
+
 // ─── MAIN PARSE FUNCTION ───
 function parseMT(rawText, forceType) {
   var envelope = parseEnvelope(rawText);
@@ -284,6 +437,9 @@ function parseMT(rawText, forceType) {
   // Collect all tags found
   var foundTags = {};
   var senderChargesArr = [];
+  // Track repeating fields (MT940: :61:, :86:, :65:)
+  var repeatingTags = schema && schema.repeating ? schema.repeating : [];
+  var repeatingData = {}; // tag -> array of decoded values
 
   for (var i = 0; i < fields.length; i++) {
     var f = fields[i];
@@ -297,6 +453,7 @@ function parseMT(rawText, forceType) {
 
     foundTags[f.tag] = true;
     var decoded;
+    var isRepeating = repeatingTags.indexOf(f.tag) !== -1;
 
     // Decode based on tag
     if (f.tag === '32A') {
@@ -314,6 +471,12 @@ function parseMT(rawText, forceType) {
       decoded = senderChargesArr;
     } else if (f.tag === '71G') {
       decoded = decodeCharges(f.value);
+    } else if (f.tag === '60F' || f.tag === '60M' || f.tag === '62F' || f.tag === '62M' || f.tag === '64' || f.tag === '65') {
+      decoded = decodeBalance(f.value);
+    } else if (f.tag === '61') {
+      decoded = decodeStatementLine(f.value);
+    } else if (f.tag === '28C') {
+      decoded = decodeStatementNumber(f.value);
     } else if (def.party && (def.format === '4*35x' || def.format === 'BIC')) {
       if (def.format === 'BIC') {
         decoded = f.value.trim();
@@ -326,20 +489,37 @@ function parseMT(rawText, forceType) {
       decoded = f.value.trim();
     }
 
-    result.fields[f.tag] = {
-      tag: f.tag,
-      name: def.name,
-      key: def.key,
-      rawValue: f.value,
-      decoded: decoded,
-      party: def.party || false,
-    };
+    // Handle repeating fields: accumulate as arrays
+    if (isRepeating) {
+      if (!repeatingData[f.tag]) repeatingData[f.tag] = [];
+      repeatingData[f.tag].push({
+        tag: f.tag,
+        name: def.name,
+        key: def.key,
+        rawValue: f.value,
+        decoded: decoded,
+        party: def.party || false,
+      });
+      // Store as array in fields
+      result.fields[f.tag] = repeatingData[f.tag];
+    } else {
+      result.fields[f.tag] = {
+        tag: f.tag,
+        name: def.name,
+        key: def.key,
+        rawValue: f.value,
+        decoded: decoded,
+        party: def.party || false,
+      };
+    }
 
     // Map to extracted using key
     if (def.key === 'valueDateCurrencyAmount') {
       // Already extracted above
     } else if (def.key === 'senderCharges') {
       result.extracted.senderCharges = senderChargesArr;
+    } else if (isRepeating) {
+      result.extracted[def.key] = repeatingData[f.tag].map(function(item) { return item.decoded; });
     } else {
       result.extracted[def.key] = decoded;
     }
