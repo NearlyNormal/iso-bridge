@@ -1373,17 +1373,17 @@ body {
 }
 
 /* Format dropdown panel — override UIKit positioning.
-   UIKit's CSS uses !important on .uk-drop positioning. We use ID selectors
-   for maximum specificity to beat both UIKit CSS and inline styles. */
+   UIKit's CSS uses !important on .uk-drop positioning. ID selectors give
+   us maximum specificity. Absolute positioning so dropdowns overlay content. */
 .format-dropdown-wrap {
   position: relative;
 }
 
 #from-dropdown,
 #to-dropdown {
-  position: relative !important;
-  top: auto !important;
-  left: auto !important;
+  position: absolute !important;
+  top: 100% !important;
+  left: 0 !important;
   right: auto !important;
   min-width: 480px !important;
   max-height: calc(100vh - 160px) !important;
@@ -1393,6 +1393,12 @@ body {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12) !important;
   margin-top: 4px !important;
   width: 100% !important;
+  z-index: 1000 !important;
+}
+
+#to-dropdown {
+  left: auto !important;
+  right: 0 !important;
 }
 
 /* Category grid inside dropdown */
