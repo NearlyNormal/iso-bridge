@@ -31,7 +31,7 @@
 html,
 body {
   font-family: var(--font-sans);
-  font-size: 1.1rem;
+  font-size: 1rem;
   line-height: 1.42;
   color: var(--text-primary);
   background: var(--bg-panel);
@@ -1018,7 +1018,8 @@ body {
 .glossary-header h3 {
   font-family: var(--font-mono);
   font-size: 1.25rem;
-  font-weight: 400;
+  font-weight: 300;
+  text-transform: uppercase;
   margin: 0;
 }
 
@@ -1050,6 +1051,21 @@ body {
 
 .glossary-coverage p {
   margin: 0;
+}
+
+.glossary-body .uk-badge {
+  background: #222;
+  min-width: 28px;
+  height: 28px;
+  line-height: 28px;
+}
+
+.glossary-body .uk-width-1-4 a {
+  font-size: 1.15rem;
+}
+
+.glossary-body .toolkit-heading {
+  font-size: 1.25rem;
 }
 
 /* ─── BLOCK LABELS ─── */
