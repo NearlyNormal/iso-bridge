@@ -104,9 +104,16 @@ iso-bridge/
 │   ├── app.js                          # Translation engine and UI wiring
 │   ├── mt-parser.js                    # MT message parser (extracted from swift-parser)
 │   └── style.css                       # Design system
+├── samples/
+│   ├── mt103.js                        # Sample MT103 message
+│   ├── pacs008.js                      # Sample pacs.008 message
+│   ├── mt202.js                        # Sample MT202 message
+│   ├── pacs009.js                      # Sample pacs.009 message
+│   ├── mt940.js                        # Sample MT940 message
+│   └── camt053.js                      # Sample camt.053 message
 ├── config/
 │   ├── countries.js                    # Country registry
-│   ├── formats.js                      # Format labels, categories, and inline samples
+│   ├── formats.js                      # Format labels, categories, and sample references
 │   ├── translations.js                 # Translation path definitions
 │   └── mappings/
 │       ├── mt103-pacs008.js            # Field-by-field: MT103 → pacs.008
@@ -235,10 +242,25 @@ To add a new format pair (e.g., MT950 to camt.052), you only need config files. 
    }
    ```
 
-4. Add format labels and samples in `config/formats.js`:
+4. Add a sample message in `samples/`:
+   ```js
+   // samples/mt950.js
+   var SAMPLE_MT950 = `{1:F01BANKUS33XXXX0000000000}
+   {2:O9500845250215BANKUS33XXXX00000000002502150845N}
+   {4:
+   :20:STMT-20250215-001
+   ...
+   -}`;
+   ```
+   Use a template literal (backticks) so the message is readable as-is. The variable name follows the pattern `SAMPLE_` + uppercase format with dots removed (e.g., `SAMPLE_PACS008`, `SAMPLE_CAMT053`). Then add a `<script>` tag in `index.html` before the config scripts:
+   ```html
+   <script src="samples/mt950.js"></script>
+   ```
+
+5. Add format labels and sample reference in `config/formats.js`:
    - Add display names to `FORMAT_LABELS` (e.g., `'MT950': 'MT950 — Interim Statement'`)
    - Add a dropdown category row to `FORMAT_CATEGORIES` if needed
-   - Add sample messages to `INLINE_SAMPLES` for the "Load Sample" button
+   - Add a reference to the sample variable in `INLINE_SAMPLES` (e.g., `'MT950': SAMPLE_MT950`)
 
 The engine discovers the new path automatically. The generic `convertMTtoISO` and `convertISOtoMT` functions use the mapping config's `direction`, `fields`, transforms, and structural metadata to drive the conversion. Any country whose `formats` array includes both source and target formats will show the path in its format selectors.
 

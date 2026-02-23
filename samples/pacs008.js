@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+var SAMPLE_PACS008 = `<?xml version="1.0" encoding="UTF-8"?>
 <Document xmlns="urn:iso:std:iso:20022:tech:xsd:pacs.008.001.08">
   <FIToFICstmrCdtTrf>
     <GrpHdr>
@@ -50,4 +50,4 @@
       </RmtInf>
     </CdtTrfTxInf>
   </FIToFICstmrCdtTrf>
-</Document>
+</Document>`;
