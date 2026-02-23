@@ -625,6 +625,11 @@ body {
   margin-top: 3px;
 }
 
+/* ─── OUTPUT SECTIONS ─── */
+.output-section {
+  margin-top: 18px;
+}
+
 /* ─── EXTRACTED FIELDS ─── */
 .fields-grid {
   display: grid;
@@ -1686,21 +1691,20 @@ body {
   margin-top: 4px;
 }
 
-/* ─── OUTPUT TOGGLE ─── */
+/* ─── OUTPUT TOGGLE (scroll-to nav) ─── */
 .output-toggle {
   display: flex;
-  flex-direction: row;
   gap: 0;
+  margin-right: 8px;
 }
 
 .toggle-btn {
-  font-family: var(--font-mono);
   font-size: var(--size-sm);
-  padding: 6px 16px;
+  padding: 5px 14px;
   border: 1px solid var(--border);
   background: var(--bg-white);
   cursor: pointer;
-  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .toggle-btn:first-child {
@@ -1709,12 +1713,31 @@ body {
 
 .toggle-btn:last-child {
   border-radius: 0 4px 4px 0;
+  border-left: none;
 }
 
-.toggle-btn.active {
+.toggle-btn:hover {
   background: var(--accent);
   color: #fff;
   border-color: var(--accent);
+}
+
+/* ─── FIELD XML SNIPPET ─── */
+.field-xml-snippet {
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: var(--bg-input);
+  border-radius: 4px;
+  font-size: var(--size-sm);
+  line-height: 1.5;
+  overflow-x: auto;
+}
+
+.field-xml-snippet code {
+  background: none;
+  padding: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 /* ─── CONVERSION NOTES ─── */

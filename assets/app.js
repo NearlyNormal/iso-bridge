@@ -3,8 +3,7 @@
 var hljsAvailable = (typeof hljs !== 'undefined');
 
 // ─── STATE ───
-var currentOutput = null;   // { xml, json, warnings, fieldMap, dataGaps, dataLoss }
-var currentView = 'xml';    // 'xml' or 'json'
+var currentOutput = null;   // { xml, json, warnings, fieldMap, dataGaps, dataLoss, parsed, direction }
 
 // ─── TRANSFORM REGISTRY ───
 var TRANSFORMS = {
@@ -941,7 +940,9 @@ function convertMTtoISO(rawText, mapping) {
     warnings: warnings,
     fieldMap: fieldMap,
     dataGaps: mapping.dataGaps || [],
-    dataLoss: []
+    dataLoss: [],
+    parsed: parsed,
+    direction: 'mt-to-iso'
   };
 }
 
@@ -1162,7 +1163,9 @@ function _convertMT940toISO(parsed, mapping, msgId, creDtTm) {
     warnings: warnings,
     fieldMap: fieldMap,
     dataGaps: mapping.dataGaps || [],
-    dataLoss: []
+    dataLoss: [],
+    parsed: parsed,
+    direction: 'mt-to-iso'
   };
 }
 
@@ -1514,7 +1517,9 @@ function convertISOtoMT(xmlText, mapping) {
     warnings: warnings,
     fieldMap: fieldMap,
     dataGaps: [],
-    dataLoss: dataLoss
+    dataLoss: dataLoss,
+    parsed: null,
+    direction: 'iso-to-mt'
   };
 }
 
@@ -1775,7 +1780,9 @@ function _convertCamt053toMT940(ftf, mapping) {
     warnings: warnings,
     fieldMap: fieldMap,
     dataGaps: [],
-    dataLoss: dataLoss
+    dataLoss: dataLoss,
+    parsed: null,
+    direction: 'iso-to-mt'
   };
 }
 
@@ -1888,27 +1895,272 @@ function translate() {
   }
 
   currentOutput = result;
-  currentView = 'xml';
+  document.querySelector('.results-area').scrollTop = 0;
   renderOutput(result);
   renderMappingDiagram(result);
 
   // Show toggle and actions
   document.getElementById('output-toggle').style.display = '';
   document.getElementById('actions-dropdown-wrap').classList.add('visible');
+}
 
-  // Update toggle button states
-  var toggleBtns = document.querySelectorAll('.toggle-btn');
-  for (var i = 0; i < toggleBtns.length; i++) {
-    toggleBtns[i].classList.toggle('active', toggleBtns[i].getAttribute('data-view') === currentView);
+// ─── PLAIN ENGLISH SUMMARY ───
+function formatAmount(num) {
+  return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function buildPlainEnglish(parsed) {
+  var ext = parsed.extracted;
+  var env = parsed.envelope;
+  var type = parsed.messageType;
+  var parts = [];
+
+  function partyName(p) {
+    if (!p) return null;
+    if (typeof p === 'string') return p;
+    if (p.name) return p.name;
+    if (p.account) return 'account ' + p.account;
+    return null;
   }
+
+  function partyAccount(p) {
+    if (!p) return null;
+    if (typeof p === 'string') return null;
+    return p.account || null;
+  }
+
+  function bicName(bic) {
+    return bic || null;
+  }
+
+  function fmtAmt(amount, currency) {
+    if (amount === undefined || amount === null) return null;
+    var num = (typeof amount === 'number') ? amount : parseFloat(String(amount).replace(',', '.'));
+    if (isNaN(num)) return currency ? currency + ' ' + amount : String(amount);
+    return currency ? formatAmount(num) + ' ' + currency : formatAmount(num);
+  }
+
+  var monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function fmtDate(d) {
+    if (!d) return null;
+    var iso = d;
+    if (/^\d{8}$/.test(d)) {
+      iso = d.substring(0, 4) + '-' + d.substring(4, 6) + '-' + d.substring(6, 8);
+    }
+    var m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (m) {
+      var month = monthNames[parseInt(m[2], 10) - 1] || m[2];
+      var day = parseInt(m[3], 10);
+      return month + ' ' + day + ', ' + m[1];
+    }
+    return d;
+  }
+
+  if (type === 'MT103') {
+    var sender = partyName(ext.orderingCustomer);
+    var senderAcct = partyAccount(ext.orderingCustomer);
+    var receiver = partyName(ext.beneficiary);
+    var receiverAcct = partyAccount(ext.beneficiary);
+    var amt = fmtAmt(ext.amount, ext.currency);
+
+    var line1 = '';
+    if (sender && amt && receiver) {
+      line1 = '<span class="data">' + escHtml(sender) + '</span>';
+      if (senderAcct) line1 += ' (' + escHtml(senderAcct) + ')';
+      line1 += ' is sending <span class="data">' + escHtml(amt) + '</span> to <span class="data">' + escHtml(receiver) + '</span>';
+      if (receiverAcct) line1 += ' (' + escHtml(receiverAcct) + ')';
+      line1 += '.';
+      parts.push(line1);
+    }
+
+    if (env.senderBIC || env.receiverBIC) {
+      var route = 'Routed';
+      if (env.senderBIC) route += ' from <span class="data">' + escHtml(env.senderBIC) + '</span>';
+      if (env.receiverBIC) route += ' to <span class="data">' + escHtml(env.receiverBIC) + '</span>';
+      route += '.';
+      parts.push(route);
+    }
+
+    if (ext.chargeBearer) {
+      var cb = ext.chargeBearer;
+      if (cb === 'SHA') parts.push('Charges are shared between sender and receiver.');
+      else if (cb === 'OUR') parts.push('All charges paid by the sender.');
+      else if (cb === 'BEN') parts.push('All charges paid by the beneficiary.');
+    }
+
+    if (ext.remittanceInformation) {
+      parts.push('Reference: <span class="data">' + escHtml(ext.remittanceInformation) + '</span>.');
+    }
+
+    if (ext.valueDate) {
+      parts.push('Transaction date is <span class="data">' + escHtml(fmtDate(ext.valueDate)) + '</span>.');
+    }
+
+  } else if (type === 'MT103 RETURN' || type === 'MT103RETURN') {
+    parts.push('Return of credit transfer:');
+    var sender = partyName(ext.orderingCustomer);
+    var receiver = partyName(ext.beneficiary);
+    var amt = fmtAmt(ext.amount, ext.currency);
+    if (sender && amt && receiver) {
+      parts.push('<span class="data">' + escHtml(sender) + '</span> returning <span class="data">' + escHtml(amt) + '</span> to <span class="data">' + escHtml(receiver) + '</span>.');
+    }
+    if (ext.valueDate) {
+      parts.push('Transaction date is <span class="data">' + escHtml(fmtDate(ext.valueDate)) + '</span>.');
+    }
+
+  } else if (type === 'MT101') {
+    var ordParty = partyName(ext.orderingCustomer) || partyName(ext.orderingParty);
+    var txCount = ext.transactionCount || (ext.transactions ? ext.transactions.length : 1);
+    var amt = fmtAmt(ext.amount || ext.totalAmount, ext.currency);
+    var line1 = 'Batch payment instruction';
+    if (ordParty) line1 += ' from <span class="data">' + escHtml(ordParty) + '</span>';
+    if (txCount > 1) line1 += ' with <span class="data">' + txCount + '</span> transactions';
+    if (amt) line1 += ' totaling <span class="data">' + escHtml(amt) + '</span>';
+    line1 += '.';
+    parts.push(line1);
+    if (ext.valueDate) {
+      parts.push('Requested execution date: <span class="data">' + escHtml(fmtDate(ext.valueDate)) + '</span>.');
+    }
+
+  } else if (type === 'MT104') {
+    var creditor = partyName(ext.beneficiary) || partyName(ext.creditor);
+    var debtor = partyName(ext.orderingCustomer) || partyName(ext.debtor);
+    var amt = fmtAmt(ext.amount, ext.currency);
+    var line1 = 'Direct debit instruction';
+    if (creditor) line1 += ' from <span class="data">' + escHtml(creditor) + '</span>';
+    if (amt) line1 += ' collecting <span class="data">' + escHtml(amt) + '</span>';
+    if (debtor) line1 += ' from <span class="data">' + escHtml(debtor) + '</span>';
+    line1 += '.';
+    parts.push(line1);
+    if (ext.valueDate) {
+      parts.push('Transaction date is <span class="data">' + escHtml(fmtDate(ext.valueDate)) + '</span>.');
+    }
+
+  } else if (type === 'MT202') {
+    var ordInst = partyName(ext.orderingInstitution) || bicName(ext.orderingInstitution);
+    var benInst = partyName(ext.beneficiaryInstitution) || bicName(ext.beneficiaryInstitution);
+    var amt = fmtAmt(ext.amount, ext.currency);
+
+    var line1 = '';
+    if (ordInst && amt && benInst) {
+      line1 = '<span class="data">' + escHtml(ordInst) + '</span> is transferring <span class="data">' + escHtml(amt) + '</span> to <span class="data">' + escHtml(benInst) + '</span>.';
+      parts.push(line1);
+    }
+
+    if (ext.transactionReference) {
+      parts.push('Transaction reference: <span class="data">' + escHtml(ext.transactionReference) + '</span>.');
+    }
+    if (ext.relatedReference) {
+      parts.push('Related to: <span class="data">' + escHtml(ext.relatedReference) + '</span>.');
+    }
+    if (ext.valueDate) {
+      parts.push('Transaction date is <span class="data">' + escHtml(fmtDate(ext.valueDate)) + '</span>.');
+    }
+
+  } else if (type === 'MT900') {
+    var amt = fmtAmt(ext.amount, ext.currency);
+    var line1 = 'Debit confirmation';
+    if (amt) line1 += ': <span class="data">' + escHtml(amt) + '</span> debited';
+    var acct = ext.accountIdentification || (ext.orderingCustomer && ext.orderingCustomer.account);
+    if (acct) line1 += ' from account <span class="data">' + escHtml(acct) + '</span>';
+    if (ext.valueDate) line1 += ' on <span class="data">' + escHtml(fmtDate(ext.valueDate)) + '</span>';
+    line1 += '.';
+    parts.push(line1);
+
+  } else if (type === 'MT910') {
+    var amt = fmtAmt(ext.amount, ext.currency);
+    var line1 = 'Credit confirmation';
+    if (amt) line1 += ': <span class="data">' + escHtml(amt) + '</span> credited';
+    var acct = ext.accountIdentification || (ext.beneficiary && ext.beneficiary.account);
+    if (acct) line1 += ' to account <span class="data">' + escHtml(acct) + '</span>';
+    if (ext.valueDate) line1 += ' on <span class="data">' + escHtml(fmtDate(ext.valueDate)) + '</span>';
+    line1 += '.';
+    parts.push(line1);
+
+  } else if (type === 'MT940' || type === 'MT942') {
+    var label = type === 'MT942' ? 'Interim transaction report' : 'Customer statement';
+    var line1 = label;
+    if (ext.accountIdentification) line1 += ' for account <span class="data">' + escHtml(ext.accountIdentification) + '</span>';
+    line1 += '.';
+    parts.push(line1);
+
+    if (ext.statementNumber) {
+      var sn = ext.statementNumber;
+      var snText = typeof sn === 'object' ? (sn.statementNumber || '') + '/' + (sn.sequenceNumber || '') : String(sn);
+      parts.push('Statement number: <span class="data">' + escHtml(snText) + '</span>.');
+    }
+
+    var stmtLines = ext.statementLine || [];
+    if (stmtLines.length > 0) {
+      parts.push('<span class="data">' + stmtLines.length + '</span> transaction entries.');
+    }
+  }
+
+  // Fallback
+  if (parts.length === 0) {
+    parts.push(escHtml(type) + ' message with ' + Object.keys(parsed.fields).length + ' fields parsed.');
+  }
+
+  return parts;
 }
 
 // ─── RENDER OUTPUT ───
+function buildXmlSnippet(isoPath, value) {
+  if (!isoPath || isoPath === '(dropped)' || isoPath === '—') return '';
+  var parts = isoPath.split('/');
+  var leaf = parts[parts.length - 1];
+  // Strip array notation like [OPBD]
+  leaf = leaf.replace(/\[.*\]/, '');
+  if (!leaf) return '';
+  if (!value && value !== 0) return '<span style="color:var(--text-muted)">&lt;' + escHtml(leaf) + '&gt; (gap)&lt;/' + escHtml(leaf) + '&gt;</span>';
+  return '&lt;' + escHtml(leaf) + '&gt;' + escHtml(truncate(String(value), 80)) + '&lt;/' + escHtml(leaf) + '&gt;';
+}
+
+function renderParsedFieldsTab(result) {
+  var fieldMap = result.fieldMap || [];
+  var html = '<div class="output-section">';
+  html += '<div class="section-header">Parsed Fields <span class="section-count">' + fieldMap.length + '</span></div>';
+  html += '<div class="fields-grid">';
+
+  for (var i = 0; i < fieldMap.length; i++) {
+    var fm = fieldMap[i];
+    var statusClass = 'status-' + fm.status;
+    var statusLabel = fm.status === 'clean' ? 'Clean' :
+                      fm.status === 'transformed' ? 'Transformed' :
+                      fm.status === 'gap' ? 'Gap' :
+                      fm.status === 'auto' ? 'Auto' : fm.status;
+
+    var tagDisplay = fm.sourceTag || '—';
+    var snippet = '';
+    if (result.direction === 'mt-to-iso') {
+      snippet = buildXmlSnippet(fm.targetPath, fm.targetValue);
+    } else {
+      // For ISO→MT, show the ISO source path snippet
+      snippet = buildXmlSnippet(fm.sourceTag, fm.sourceValue);
+    }
+
+    html += '<div class="field-row">';
+    html += '<div class="field-tag-col"><span class="tag-badge">' + escHtml(tagDisplay) + '</span></div>';
+    html += '<div class="field-content-col">';
+    html += '<div class="field-name">' + escHtml(fm.sourceName) + ' <span class="mapping-status ' + statusClass + '" style="font-size:var(--size-xs);padding:1px 6px;vertical-align:middle">' + statusLabel + '</span></div>';
+    html += '<div class="field-value">' + escHtml(truncate(fm.sourceValue || fm.targetValue, 100)) + '</div>';
+    if (snippet) {
+      html += '<div class="field-xml-snippet"><code>' + snippet + '</code></div>';
+    }
+    html += '</div>';
+    html += '</div>';
+  }
+
+  html += '</div>'; // fields-grid
+  html += '</div>'; // output-section
+  return html;
+}
+
 function renderOutput(result) {
   var container = document.getElementById('results-content');
   var html = '';
 
-  // Summary banner
+  // 1. Summary banner (always shown)
   var warnCount = result.warnings.length;
   var lossCount = result.dataLoss ? result.dataLoss.length : 0;
 
@@ -1922,30 +2174,51 @@ function renderOutput(result) {
 
   html += '<div class="results-body-inner">';
 
-  // Output code block
-  if (currentView === 'xml') {
-    var outputText = result.xml || result.mt || '';
-    var lang = (result.mt && !result.xml.startsWith('<?xml')) ? 'plaintext' : 'xml';
-    var highlighted = outputText;
-    if (hljsAvailable) {
-      try { highlighted = hljs.highlight(outputText, { language: lang }).value; } catch(e) { highlighted = escHtml(outputText); }
-    } else {
-      highlighted = escHtml(outputText);
+  // 2. Plain English summary (only if parsed data exists — MT source)
+  if (result.parsed) {
+    var plainParts = buildPlainEnglish(result.parsed);
+    if (plainParts && plainParts.length > 0) {
+      html += '<div class="plain-english">';
+      html += '<div class="plain-english-icon"><img src="assets/info.svg" alt=""></div>';
+      html += '<div class="plain-english-header"><span class="plain-english-label">Plain English</span></div>';
+      html += '<div class="plain-english-text">' + plainParts.join('<br>') + '</div>';
+      html += '</div>';
     }
-    html += '<div class="json-preview"><button class="json-copy-btn" onclick="copyOutput()"><img src="assets/copy.svg" alt=""> Copy</button><pre><code>' + highlighted + '</code></pre></div>';
-  } else {
-    // JSON view
-    var jsonStr = JSON.stringify(result.json, null, 2);
-    var highlighted = jsonStr;
-    if (hljsAvailable) {
-      try { highlighted = hljs.highlight(jsonStr, { language: 'json' }).value; } catch(e) { highlighted = escHtml(jsonStr); }
-    } else {
-      highlighted = escHtml(jsonStr);
-    }
-    html += '<div class="json-preview"><button class="json-copy-btn" onclick="copyJson()"><img src="assets/copy.svg" alt=""> Copy</button><pre><code>' + highlighted + '</code></pre></div>';
   }
 
-  // Conversion notes
+  // 3. Parsed Fields (always shown if fieldMap exists)
+  if (result.fieldMap && result.fieldMap.length > 0) {
+    html += renderParsedFieldsTab(result);
+  }
+
+  // 4. XML block (always shown)
+  var xmlText = result.xml || result.mt || '';
+  var xmlLang = (result.mt && !result.xml) ? 'plaintext' : 'xml';
+  var xmlHighlighted = xmlText;
+  if (hljsAvailable) {
+    try { xmlHighlighted = hljs.highlight(xmlText, { language: xmlLang }).value; } catch(e) { xmlHighlighted = escHtml(xmlText); }
+  } else {
+    xmlHighlighted = escHtml(xmlText);
+  }
+  html += '<div class="output-section" id="xml-output">';
+  html += '<div class="section-header">' + escHtml(result.direction === 'mt-to-iso' ? 'XML Output' : 'MT Output') + '</div>';
+  html += '<div class="json-preview"><button class="json-copy-btn" onclick="copyOutput()"><img src="assets/copy.svg" alt=""> Copy</button><pre><code>' + xmlHighlighted + '</code></pre></div>';
+  html += '</div>';
+
+  // 5. JSON block (always shown)
+  var jsonStr = JSON.stringify(result.json, null, 2);
+  var jsonHighlighted = jsonStr;
+  if (hljsAvailable) {
+    try { jsonHighlighted = hljs.highlight(jsonStr, { language: 'json' }).value; } catch(e) { jsonHighlighted = escHtml(jsonStr); }
+  } else {
+    jsonHighlighted = escHtml(jsonStr);
+  }
+  html += '<div class="output-section" id="json-output">';
+  html += '<div class="section-header">JSON Output</div>';
+  html += '<div class="json-preview"><button class="json-copy-btn" onclick="copyJson()"><img src="assets/copy.svg" alt=""> Copy</button><pre><code>' + jsonHighlighted + '</code></pre></div>';
+  html += '</div>';
+
+  // 4. Warnings / Data Gaps / Data Loss (always shown)
   if (warnCount > 0) {
     html += '<div class="conversion-notes">';
     html += '<div class="section-header">Conversion Warnings <span class="section-count">' + warnCount + '</span></div>';
@@ -1955,7 +2228,6 @@ function renderOutput(result) {
     html += '</div>';
   }
 
-  // Data gaps
   if (result.dataGaps && result.dataGaps.length > 0) {
     html += '<div class="conversion-notes">';
     html += '<div class="section-header">Data Gaps <span class="section-count">' + result.dataGaps.length + '</span></div>';
@@ -1966,7 +2238,6 @@ function renderOutput(result) {
     html += '</div>';
   }
 
-  // Data loss
   if (result.dataLoss && result.dataLoss.length > 0) {
     html += '<div class="conversion-notes">';
     html += '<div class="section-header">Data Loss <span class="section-count">' + result.dataLoss.length + '</span></div>';
@@ -2010,7 +2281,7 @@ function renderMappingDiagram(result) {
                       fm.status === 'auto' ? 'Auto' : fm.status;
 
     html += '<tr>';
-    html += '<td><code>' + escHtml(fm.sourceTag) + '</code><div class="mapping-note">' + escHtml(fm.sourceName) + '</div></td>';
+    html += '<td><span class="tag-badge">' + escHtml(fm.sourceTag) + '</span><div class="mapping-note">' + escHtml(fm.sourceName) + '</div></td>';
     html += '<td>' + escHtml(truncate(fm.sourceValue, 50)) + '</td>';
     html += '<td style="text-align:center;color:var(--text-muted)">&rarr;</td>';
     html += '<td><code>' + escHtml(fm.targetPath) + '</code><div class="mapping-note">' + escHtml(fm.targetName) + '</div></td>';
@@ -2114,20 +2385,8 @@ function initUI() {
     e.target.value = '';
   });
 
-  // Output toggle
-  var toggleBtns = document.querySelectorAll('.toggle-btn');
-  for (var i = 0; i < toggleBtns.length; i++) {
-    toggleBtns[i].addEventListener('click', function() {
-      currentView = this.getAttribute('data-view');
-      for (var j = 0; j < toggleBtns.length; j++) {
-        toggleBtns[j].classList.toggle('active', toggleBtns[j].getAttribute('data-view') === currentView);
-      }
-      if (currentOutput) renderOutput(currentOutput);
-    });
-  }
-
   // Actions
-  document.getElementById('copy-output-btn').addEventListener('click', function(e) {
+  document.getElementById('copy-xml-btn').addEventListener('click', function(e) {
     e.preventDefault();
     copyOutput();
   });
@@ -2135,10 +2394,24 @@ function initUI() {
     e.preventDefault();
     copyJson();
   });
-  document.getElementById('download-btn').addEventListener('click', function(e) {
+  document.getElementById('export-pdf-btn').addEventListener('click', function(e) {
     e.preventDefault();
-    downloadOutput();
+    window.print();
   });
+
+  // Output toggle — scroll within right panel to XML/JSON sections
+  var toggleBtns = document.querySelectorAll('.toggle-btn');
+  var resultsArea = document.querySelector('.results-area');
+  for (var i = 0; i < toggleBtns.length; i++) {
+    toggleBtns[i].addEventListener('click', function() {
+      var target = document.getElementById(this.getAttribute('data-target'));
+      if (target && resultsArea) {
+        var targetRect = target.getBoundingClientRect();
+        var areaRect = resultsArea.getBoundingClientRect();
+        resultsArea.scrollTop += targetRect.top - areaRect.top;
+      }
+    });
+  }
 
   // Source highlighting sync
   var sourceInput = document.getElementById('source-input');

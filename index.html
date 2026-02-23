@@ -16,7 +16,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/xml.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/json.min.js"></script>
-  <link rel="stylesheet" href="assets/style.css?v=3">
+  <link rel="stylesheet" href="assets/style.css?v=4">
 </head>
 <body>
 
@@ -117,17 +117,17 @@
           <span class="panel-right-title">Translated Output</span>
           <div class="toolbar-right-actions">
             <div class="output-toggle" id="output-toggle" style="display:none">
-              <button class="toggle-btn active" data-view="xml">XML</button>
-              <button class="toggle-btn" data-view="json">JSON</button>
+              <button class="toggle-btn" data-target="xml-output">XML</button>
+              <button class="toggle-btn" data-target="json-output">JSON</button>
             </div>
             <div class="actions-dropdown-wrap" id="actions-dropdown-wrap">
               <div class="uk-inline">
                 <button class="toolbar-btn" type="button"><img src="assets/actions.svg" alt=""> Actions &#x25BE;</button>
                 <div uk-dropdown="mode: click; pos: bottom-right" class="actions-dropdown">
                   <ul class="uk-nav uk-nav-default">
-                    <li><a href="#" id="copy-output-btn"><img src="assets/copy.svg" alt="" class="dropdown-icon"> Copy Output</a></li>
+                    <li><a href="#" id="copy-xml-btn"><img src="assets/copy.svg" alt="" class="dropdown-icon"> Copy XML</a></li>
                     <li><a href="#" id="copy-json-btn"><img src="assets/copy.svg" alt="" class="dropdown-icon"> Copy JSON</a></li>
-                    <li><a href="#" id="download-btn"><img src="assets/export.svg" alt="" class="dropdown-icon"> Download File</a></li>
+                    <li><a href="#" id="export-pdf-btn"><img src="assets/export.svg" alt="" class="dropdown-icon"> Export PDF</a></li>
                   </ul>
                 </div>
               </div>
